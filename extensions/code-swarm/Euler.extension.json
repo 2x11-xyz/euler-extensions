@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "id": "code-swarm",
+  "display_name": "CodeSwarm Review",
+  "extension_version": "0.1.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/code-swarm"]
+  },
+  "capabilities": ["agent-spawn", "artifact-write"],
+  "commands": [
+    {
+      "name": "review",
+      "display_name": "Run CodeSwarm review",
+      "summary": "Run 1-5 review-only agents over explicit bounded context and write a consolidated review artifact.",
+      "required_capabilities": ["agent-spawn", "artifact-write"],
+      "invocation": "agent-only"
+    }
+  ]
+}

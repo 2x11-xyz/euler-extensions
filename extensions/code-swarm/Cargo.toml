@@ -1,0 +1,11 @@
+[package]
+name = "code-swarm"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Euler CodeSwarm review extension: bounded multi-agent code review consolidated into a JSON artifact"
+
+[dependencies]
+euler-managed-process-sdk = { path = "../../sdks/rust/euler-managed-process-sdk" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
