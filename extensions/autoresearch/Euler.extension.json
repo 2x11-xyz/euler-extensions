@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "id": "autoresearch",
+  "display_name": "Autoresearch",
+  "extension_version": "0.1.1",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/autoresearch"]
+  },
+  "capabilities": ["provenance-read", "artifact-write", "context-slot"],
+  "commands": [
+    {
+      "name": "objective-brief",
+      "display_name": "Build autoresearch objective brief",
+      "summary": "Build a companion AgentTask brief for choosing the next objective.",
+      "required_capabilities": ["provenance-read"]
+    },
+    {
+      "name": "objective-report",
+      "display_name": "Write autoresearch objective report",
+      "summary": "Persist a companion-produced autoresearch objective artifact.",
+      "required_capabilities": ["provenance-read", "artifact-write", "context-slot"]
+    }
+  ]
+}

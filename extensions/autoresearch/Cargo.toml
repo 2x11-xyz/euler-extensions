@@ -1,0 +1,10 @@
+[package]
+name = "autoresearch"
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+description = "Euler autoresearch extension: build and persist repo-directed research objectives from bounded provenance"
+
+[dependencies]
+euler-managed-process-sdk = { path = "../../sdks/rust/euler-managed-process-sdk" }
+serde_json = "1"
