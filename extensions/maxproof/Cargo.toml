@@ -1,0 +1,15 @@
+[package]
+name = "maxproof"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Euler MaxProof extension: population-level test-time proof search over the managed-process protocol"
+
+[[bin]]
+name = "maxproof"
+path = "src/main.rs"
+
+[dependencies]
+euler-managed-process-sdk = { path = "../../sdks/rust/euler-managed-process-sdk" }
+serde_json = "1"
+sha2 = "0.10"

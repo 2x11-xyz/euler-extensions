@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "maxproof",
+  "display_name": "MaxProof",
+  "extension_version": "0.1.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/maxproof"]
+  },
+  "capabilities": ["provenance-read", "artifact-write"],
+  "commands": [
+    {
+      "name": "population-brief",
+      "display_name": "Build MaxProof population briefs",
+      "summary": "Build bounded proof-generator AgentTask briefs.",
+      "required_capabilities": []
+    },
+    {
+      "name": "verify-brief",
+      "display_name": "Build MaxProof verifier briefs",
+      "summary": "Build independent verifier AgentTask briefs for candidate results.",
+      "required_capabilities": ["provenance-read"]
+    },
+    {
+      "name": "tournament",
+      "display_name": "Run MaxProof tournament",
+      "summary": "Select a proof by conservative deterministic fitness and persist archive.",
+      "required_capabilities": ["provenance-read", "artifact-write"]
+    }
+  ]
+}
