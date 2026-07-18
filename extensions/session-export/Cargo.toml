@@ -1,0 +1,10 @@
+[package]
+name = "session-export"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Euler session-export extension: bounded session events as a JSON artifact"
+
+[dependencies]
+euler-managed-process-sdk = { path = "../../sdks/rust/euler-managed-process-sdk" }
+serde_json = "1"

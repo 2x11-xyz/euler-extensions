@@ -11,8 +11,9 @@ SDKs live here as conveniences, never requirements.
 
 ## Status
 
-Seeding. The migration order for Euler's bundled extensions and the first
-language SDKs land here as they convert. Layout:
+Growing. The Rust SDK (`sdks/rust/euler-managed-process-sdk`) and the first
+converted extension (`extensions/session-export`) are in; the remaining
+bundled extensions migrate as the host boundary proves out. Layout:
 
 ```text
 extensions/<id>/    one extension per directory (Euler.extension.json + entrypoint)

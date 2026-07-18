@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "session-export",
+  "display_name": "Session Export",
+  "extension_version": "0.2.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/session-export"]
+  },
+  "capabilities": ["provenance-read", "artifact-write"],
+  "commands": [
+    {
+      "name": "session-export",
+      "display_name": "Session export",
+      "summary": "Export bounded session events as a JSON artifact.",
+      "required_capabilities": ["provenance-read", "artifact-write"]
+    }
+  ]
+}

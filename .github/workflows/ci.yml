@@ -1,0 +1,23 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: SDK and extensions
+        run: |
+          for crate in sdks/rust/euler-managed-process-sdk extensions/session-export; do
+            echo "== $crate"
+            (cd "$crate" \
+              && cargo fmt -- --check \
+              && cargo clippy --all-targets -- -D warnings \
+              && cargo test \
+              && cargo build --release)
+          done

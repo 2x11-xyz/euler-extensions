@@ -1,0 +1,11 @@
+[package]
+name = "euler-managed-process-sdk"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust client for the Euler managed-process extension protocol"
+
+[dependencies]
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
