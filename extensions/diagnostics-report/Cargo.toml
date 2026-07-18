@@ -1,0 +1,11 @@
+[package]
+name = "diagnostics-report"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Euler diagnostics-report extension: aggregate the session diagnostics log into a JSON artifact"
+
+[dependencies]
+euler-managed-process-sdk = { path = "../../sdks/rust/euler-managed-process-sdk" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

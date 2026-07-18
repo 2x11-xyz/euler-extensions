@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "diagnostics-report",
+  "display_name": "Diagnostics Report",
+  "extension_version": "0.2.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/diagnostics-report"]
+  },
+  "capabilities": ["diagnostics-read", "artifact-write"],
+  "commands": [
+    {
+      "name": "report",
+      "display_name": "Write diagnostics report",
+      "summary": "Aggregate the current session diagnostics log into a report artifact.",
+      "required_capabilities": ["diagnostics-read", "artifact-write"]
+    }
+  ]
+}

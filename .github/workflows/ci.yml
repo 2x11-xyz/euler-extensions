@@ -13,7 +13,7 @@ jobs:
           components: rustfmt, clippy
       - name: SDK and extensions
         run: |
-          for crate in sdks/rust/euler-managed-process-sdk extensions/session-export; do
+          for crate in sdks/rust/euler-managed-process-sdk extensions/session-export extensions/diagnostics-report; do
             echo "== $crate"
             (cd "$crate" \
               && cargo fmt -- --check \
