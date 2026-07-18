@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "id": "causal-dag",
+  "display_name": "Causal DAG",
+  "extension_version": "0.1.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["target/release/causal-dag"]
+  },
+  "capabilities": [
+    "provenance-read",
+    "artifact-write",
+    "fs-read",
+    "fs-write",
+    "agent-record",
+    "agent-spawn",
+    "context-slot"
+  ],
+  "commands": [
+    {
+      "name": "export",
+      "display_name": "Export causal DAG",
+      "summary": "Export the active Causal DAG as HTML, JSON, SVG, DOT, Markdown, or summary.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write"]
+    },
+    {
+      "name": "view",
+      "display_name": "View causal DAG",
+      "summary": "Show the active path, open frontier, and dead ends without writing a file.",
+      "required_capabilities": ["fs-read", "fs-write"]
+    },
+    {
+      "name": "update",
+      "display_name": "Update causal DAG",
+      "summary": "Run one durable checkpointed Causal DAG projection tick.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write", "context-slot"]
+    },
+    {
+      "name": "catch-up",
+      "display_name": "Catch up causal DAG",
+      "summary": "Run bounded Causal DAG update ticks until caught up or budgeted.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write", "context-slot"]
+    },
+    {
+      "name": "observe",
+      "display_name": "Observe causal DAG",
+      "summary": "Project observer-produced Causal DAG hints over bounded provenance.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write", "context-slot"]
+    },
+    {
+      "name": "research-enable",
+      "display_name": "Enable durable research record",
+      "summary": "Use the durable research record and deterministic v4 Causal DAG projection for this session.",
+      "required_capabilities": ["fs-read", "fs-write"]
+    },
+    {
+      "name": "refresh",
+      "display_name": "Refresh causal DAG",
+      "summary": "Increment, reframe, or finalize the active semantic Causal DAG.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write", "agent-spawn", "context-slot"]
+    },
+    {
+      "name": "observer-brief",
+      "display_name": "Build observer brief",
+      "summary": "Build a bounded companion AgentTask for observing a provenance window.",
+      "required_capabilities": ["provenance-read", "fs-read", "fs-write"]
+    },
+    {
+      "name": "observer-apply",
+      "display_name": "Apply observer output",
+      "summary": "Fold a round-observer companion's hints output into a Causal DAG projection.",
+      "required_capabilities": ["provenance-read", "artifact-write", "fs-read", "fs-write", "context-slot"]
+    },
+    {
+      "name": "record-observation",
+      "display_name": "Record Causal DAG observation",
+      "summary": "Record post-hoc observer audit metadata for an existing Causal DAG artifact.",
+      "required_capabilities": ["provenance-read", "agent-record"]
+    }
+  ]
+}
