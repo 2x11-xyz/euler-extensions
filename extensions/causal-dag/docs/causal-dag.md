@@ -1,5 +1,13 @@
 # Causal DAG
 
+> **Historical behavior documentation.** This guide describes the bundled
+> Rust implementation that was removed from euler when it went core-only.
+> None of the commands or TUI surfaces below (`euler extension run
+> causal-dag.*`, `/causal-dag`, `/catch-up`) exist today; there is no
+> runnable causal-dag package yet. The guide is kept as the behavior
+> reference for the planned rewrite, alongside the schemas and fixtures in
+> `../spec/`.
+
 The causal DAG extension turns a session log into a branching attempt graph.
 It is user-facing, but the schema is still moving; rely on the `schema` strings
 and command output fields, not prose labels.
@@ -21,9 +29,9 @@ Visualization preserves all eight states. Status is encoded redundantly by
 color and glyph in 2D and by color in the constellation views. Plotted roots
 are always gold; their true status and kind (`root`, `attempt`, `claim`,
 `checkpoint`, `synthesis`) remain available in the detail surface and raw
-artifact. The canonical color and glyph tokens live in
-`crates/euler-extension-causal-dag/assets/palette.json` and are injected into
-every generated viewer.
+artifact. The canonical color and glyph tokens lived in the removed crate's
+`assets/palette.json` (available in euler's git history) and were injected
+into every generated viewer.
 
 ## Enable it
 

@@ -28,11 +28,14 @@ Media types: `application/vnd.euler.causal-dag.v3+json` (current),
 | `euler.causal_dag.viewer.v2` | HTML viewer graph payload (`src/export/graph.rs`) |
 | `euler.causal_dag.palette.v1` | Export palette (`src/export/palette.rs`) |
 
-## Executable spec
+## Conformance suite (archived source)
 
-`schema_conformance.rs` (copied verbatim from the crate's tests) encodes the
-acceptance rules — root/edge/provenance shape — against canonical events. It
-deliberately imports `euler_event` rather than the projector so schema validity
-stays independent of any implementation. The three fixture cases each pair
+`schema_conformance.rs` (copied from the crate's tests, with only the
+fixture path re-pointed to this package's layout) encodes the acceptance
+rules — root/edge/provenance shape — against canonical events. It
+deliberately imports `euler_event` rather than the projector so schema
+validity stays independent of any implementation. It is archived test
+source, not wired into this repo's CI; the rewrite wires it into its own
+test harness. The three fixture cases each pair
 `events.jsonl` (canonical session events) with `expected.causal-dag.json`
 (the byte-exact expected v3 artifact, modulo projection metadata).

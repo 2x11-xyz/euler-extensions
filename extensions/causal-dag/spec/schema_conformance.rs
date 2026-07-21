@@ -572,8 +572,11 @@ struct FixtureCase {
 }
 
 fn load_fixture(name: &str) -> FixtureCase {
+    // Fixture layout of this spec package (extensions/causal-dag/spec/
+    // fixtures). A rewrite wiring this suite into its own crate re-points
+    // this path to wherever it vendors the fixtures.
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/causal_dag")
+        .join("spec/fixtures")
         .join(name);
     let (events, event_values) = load_events(&dir.join("events.jsonl"));
     let artifact = load_json(&dir.join("expected.causal-dag.json"));

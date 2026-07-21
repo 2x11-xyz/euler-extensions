@@ -13,8 +13,11 @@ This package preserves the golden rails any rewrite must satisfy:
 - `spec/fixtures/` — three fixture cases (`knuth_style_search`,
   `code_review_study`, `emdash_mechanism_analysis`), each pairing canonical
   session events with the expected `euler.causal_dag.v3` artifact.
-- `spec/schema_conformance.rs` — the executable acceptance rules, copied
-  verbatim from the removed crate's test suite.
+- `spec/schema_conformance.rs` — the acceptance rules, copied from the
+  removed crate's test suite with only the fixture path re-pointed to this
+  package's layout. It is archived test source, not wired into this repo's
+  CI (it depends on `euler_event`); the rewrite wires it into its own test
+  harness as the first gate.
 - `spec/SCHEMAS.md` — the full schema-identifier inventory.
 - `docs/causal-dag.md` — the human-facing guide from the euler repo.
 
