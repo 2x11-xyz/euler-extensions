@@ -78,6 +78,46 @@ class WalkImportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_walk(EXPORT, STEPS, {"ev-a": EVENTS["ev-a"]})
 
+    def test_missing_middle_turn_event_is_an_error(self):
+        # Every event a turn owns must be known — not just the anchor.
+        partial = {eid: meta for eid, meta in EVENTS.items() if eid != "ev-c"}
+        with self.assertRaises(ValueError):
+            import_walk(EXPORT, STEPS, partial)
+
+    def test_range_follows_stream_order_not_id_order(self):
+        # Euler event ids are non-monotonic ULIDs: id sort order can invert
+        # stream order. The range must follow the stream.
+        export = {
+            "schema": "causal-dag.walk-annotations.v2",
+            "session_id": "session-inverted",
+            "exported_at": "2026-07-24T12:00:00+00:00",
+            "nodes": [{"node_id": "n-only", "kind": "root", "status": "open",
+                       "title": "Goal", "note": ""}],
+            "node_steps": [{"node_id": "n-only", "step_id": 0}],
+            "edges": [],
+        }
+        steps = [{"step_id": 0, "kind": "user", "event_ids": ["ev-z", "ev-a"]}]
+        events = {  # stream order: ev-z first — the opposite of id order
+            "ev-z": {"kind": "user.message", "ts": "2026-07-01T09:00:00Z"},
+            "ev-a": {"kind": "tool.result", "ts": "2026-07-01T09:05:00Z"},
+        }
+        art = import_walk(export, steps, events)
+        self.assertEqual(art.session.event_range.start, "ev-z")
+        self.assertEqual(art.session.event_range.end, "ev-a")
+        self.assertEqual(art.generated_at, "2026-07-01T09:05:00Z")
+        self.assertEqual(art.nodes[0].source_refs[0].event_id, "ev-z")
+
+    def test_empty_export_produces_valid_empty_artifact(self):
+        empty = {"schema": "causal-dag.walk-annotations.v2",
+                 "session_id": "session-empty",
+                 "exported_at": "2026-07-24T12:00:00+00:00",
+                 "nodes": [], "node_steps": [], "edges": []}
+        art = import_walk(empty, [], {})
+        self.assertEqual(check(art), [])
+        self.assertEqual(art.generated_at, "1970-01-01T00:00:00Z")
+        self.assertTrue(any(w.code == "empty_forest"
+                            for w in art.diagnostics.warnings))
+
     def test_lossy_cell_emits_warning(self):
         try2 = next(n for n in self.artifact.nodes if n.id == "n-try2")
         self.assertEqual(try2.status, "dead_end")

@@ -416,15 +416,29 @@ def dumps(artifact: Artifact) -> str:
                       allow_nan=False) + "\n"
 
 
-# Closed key sets (§5): parsing rejects unknown or missing keys instead of
-# silently dropping or rewriting them on the next serialization.
+# Closed key sets (§5): parsing rejects unknown or missing keys at every level
+# instead of silently dropping or rewriting them on the next serialization.
 _TOP_KEYS = frozenset({"schema", "media_type", "generated_at", "session",
                        "projection", "construction", "forest", "diagnostics"})
+_SESSION_KEYS = frozenset({"id", "event_range"})
+_RANGE_KEYS = frozenset({"start", "end", "complete"})
+_PROJECTION_KEYS = frozenset({"extension_id", "watermark_event_id", "basis", "degraded"})
+_CONSTRUCTION_KEYS = frozenset({"operation", "policy", "trigger",
+                                "predecessor_artifact_event_id",
+                                "predecessor_watermark_event_id",
+                                "observer_result_event_id"})
 _FOREST_KEYS = frozenset({"roots", "active_root", "nodes", "edges"})
 _NODE_KEYS = frozenset({"id", "root_id", "kind", "status", "title", "summary",
                         "turns", "source_refs", "basis", "metadata"})
 _EDGE_KEYS = frozenset({"id", "from", "to", "class", "kind",
                         "canonical_backbone", "source_refs", "basis", "metadata"})
+_TURN_KEYS = frozenset({"step_id", "event_ids"})
+_REF_KEYS = frozenset({"id", "kind", "event_id", "event_kind", "payload_pointer",
+                       "artifact", "blob"})
+_BASIS_KEYS = frozenset({"kind", "summary", "source_ref_ids"})
+_DIAG_KEYS = frozenset(DIAGNOSTIC_COUNTERS) | {"warnings"}
+_WARNING_KEYS = frozenset({"code", "severity", "message", "node_ids", "edge_ids",
+                           "source_ref_ids"})
 
 
 def _reject_constant(name: str):
@@ -438,15 +452,33 @@ def _require_keys(d: Dict[str, Any], keys: frozenset, where: str) -> None:
         raise ValueError(f"{where}: unknown keys {unknown}, missing keys {missing}")
 
 
+def _require_owner_keys(d: Dict[str, Any], where: str) -> None:
+    for turn in d.get("turns", ()):
+        _require_keys(turn, _TURN_KEYS, f"{where} turn")
+    for ref in d["source_refs"]:
+        _require_keys(ref, _REF_KEYS, f"{where} source_ref {ref.get('id')}")
+    if d["basis"] is not None:
+        _require_keys(d["basis"], _BASIS_KEYS, f"{where} basis")
+
+
 def loads(text: str) -> Artifact:
-    """Strict parse: closed key sets, no NaN/Infinity, derived fields verified."""
+    """Strict parse: closed key sets at every level, no NaN/Infinity, derived fields verified."""
     d = json.loads(text, parse_constant=_reject_constant)
     _require_keys(d, _TOP_KEYS, "artifact")
+    _require_keys(d["session"], _SESSION_KEYS, "session")
+    _require_keys(d["session"]["event_range"], _RANGE_KEYS, "event_range")
+    _require_keys(d["projection"], _PROJECTION_KEYS, "projection")
+    _require_keys(d["construction"], _CONSTRUCTION_KEYS, "construction")
     _require_keys(d["forest"], _FOREST_KEYS, "forest")
+    _require_keys(d["diagnostics"], _DIAG_KEYS, "diagnostics")
+    for w in d["diagnostics"]["warnings"]:
+        _require_keys(w, _WARNING_KEYS, f"warning {w.get('code')}")
     for n in d["forest"]["nodes"]:
         _require_keys(n, _NODE_KEYS, f"node {n.get('id')}")
+        _require_owner_keys(n, f"node {n.get('id')}")
     for e in d["forest"]["edges"]:
         _require_keys(e, _EDGE_KEYS, f"edge {e.get('id')}")
+        _require_owner_keys(e, f"edge {e.get('id')}")
     artifact = Artifact.from_dict(d)
     if d["forest"]["roots"] != artifact.roots():
         raise ValueError("serialized forest.roots does not match the derived roots")

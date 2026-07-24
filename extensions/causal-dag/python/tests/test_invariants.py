@@ -197,6 +197,26 @@ class StrictLoadsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             loads(json.dumps(d))
 
+    def test_nested_unknown_keys_are_rejected(self):
+        import json
+        for path in (("projection",), ("session", "event_range"),
+                     ("construction",), ("diagnostics",)):
+            with self.subTest(path=path):
+                d = json.loads(dumps(build_valid()))
+                target = d
+                for key in path:
+                    target = target[key]
+                target["extra"] = True
+                with self.assertRaises(ValueError):
+                    loads(json.dumps(d))
+
+    def test_source_ref_unknown_key_is_rejected(self):
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["forest"]["nodes"][0]["source_refs"][0]["extra"] = True
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
 
 if __name__ == "__main__":
     unittest.main()
