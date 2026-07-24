@@ -25,8 +25,11 @@ walk never exercises are best-effort and marked lossy:
                 success->succeeded  verified->verified  superseded->superseded
                 abandoned->abandoned  inconclusive->dead_end (lossy: no
                 investigation verdict for "unsettled")
-    claim:      open->open  success->supported  verified->proven
-                dead_end->refuted  inconclusive->inconclusive
+    claim:      open->open  success->supported  verified->supported (lossy:
+                never *strengthen* — proven is reserved for deductive evidence
+                the old grading cannot attest)  dead_end->abandoned (lossy: the
+                Q2 miscoding is carried, not promoted to refuted; regrade in a
+                new walk to claim refuted)  inconclusive->inconclusive
                 superseded->superseded  abandoned->abandoned  blocked->open (lossy)
     synthesis:  open->open  success->stated  verified->verified
                 superseded->superseded  dead_end/abandoned->abandoned
@@ -74,8 +77,8 @@ STATUS_MAP: Dict[str, Dict[str, str]] = {
                       "success": "succeeded", "verified": "verified",
                       "superseded": "superseded", "abandoned": "abandoned",
                       "inconclusive": "dead_end"},
-    "claim": {"open": "open", "success": "supported", "verified": "proven",
-              "dead_end": "refuted", "inconclusive": "inconclusive",
+    "claim": {"open": "open", "success": "supported", "verified": "supported",
+              "dead_end": "abandoned", "inconclusive": "inconclusive",
               "superseded": "superseded", "abandoned": "abandoned", "blocked": "open"},
     "synthesis": {"open": "open", "success": "stated", "verified": "verified",
                   "superseded": "superseded", "dead_end": "abandoned",
@@ -86,18 +89,24 @@ STATUS_MAP: Dict[str, Dict[str, str]] = {
 # artifact must say so (honest degradation) — each use emits a warning.
 LOSSY_CELLS = frozenset({
     ("question", "inconclusive"), ("investigation", "inconclusive"),
-    ("claim", "blocked"), ("synthesis", "inconclusive"), ("synthesis", "blocked"),
+    ("claim", "blocked"), ("claim", "verified"), ("claim", "dead_end"),
+    ("synthesis", "inconclusive"), ("synthesis", "blocked"),
     ("synthesis", "dead_end"), ("question", "dead_end"),
 })
 
+# Empty event stream sentinel, inherited from v3.
+EPOCH = "1970-01-01T00:00:00Z"
+
 
 def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
-                event_kinds: Dict[str, str]) -> Artifact:
+                events: Dict[str, Dict[str, str]]) -> Artifact:
     """Project a walk-annotations.v2 export + its session steps into a v5 artifact.
 
-    ``event_kinds`` maps event id -> the event's real kind from the session's
-    provenance stream. Citations must be honest: a guessed kind is a wrong
-    citation, so an event without a known kind is an error, not a default.
+    ``events`` maps event id -> ``{"kind": ..., "ts": ...}`` from the session's
+    real provenance stream. Citations must be honest: a guessed kind is a wrong
+    citation, so an unknown event is an error, not a default. ``generated_at``
+    equals the range-end event's timestamp (inherited v3 rule), not the export's
+    wall-clock time.
     """
     step_events = {s["step_id"]: list(s.get("event_ids", [])) for s in steps}
 
@@ -127,7 +136,7 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
         status = STATUS_MAP[kind][raw["status"]]
         if (kind, raw["status"]) in LOSSY_CELLS:
             lossy.setdefault((kind, raw["status"], status), []).append(nid)
-        turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events, event_kinds)
+        turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events, events)
         metadata: Dict[str, Any] = {}
         if kind == "synthesis":
             metadata["consolidation"] = raw["kind"] == "checkpoint"
@@ -152,9 +161,11 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     all_events = sorted({ev for evs in step_events.values() for ev in evs})
     start = all_events[0] if all_events else None
     end = all_events[-1] if all_events else None
+    if end is not None and end not in events:
+        raise ValueError(f"no event metadata known for range-end event {end}")
 
     artifact = Artifact(
-        generated_at=export.get("exported_at", "1970-01-01T00:00:00Z"),
+        generated_at=events[end]["ts"] if end is not None else EPOCH,
         session=Session(export["session_id"], EventRange(start, end, complete=True)),
         projection=Projection("causal-dag", end, "bounded_provenance_query", degraded=False),
         construction=Construction("snapshot", "manual", "command"),
@@ -175,21 +186,21 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     return artifact
 
 
-def _turns_and_refs(node_id, step_ids, step_events, event_kinds):
+def _turns_and_refs(node_id, step_ids, step_events, events):
     turns: List[Turn] = []
     refs: List[SourceRef] = []
     for step_id in sorted(step_ids):
-        events = step_events.get(step_id, [])
-        turns.append(Turn(step_id, events))
-        if events:
-            first = events[0]
-            if first not in event_kinds:
-                raise ValueError(f"no event kind known for cited event {first}")
+        event_ids = step_events.get(step_id, [])
+        turns.append(Turn(step_id, event_ids))
+        if event_ids:
+            first = event_ids[0]
+            if first not in events:
+                raise ValueError(f"no event metadata known for cited event {first}")
             refs.append(SourceRef(
                 id=f"{node_id}-t{step_id}",
                 kind="event",
                 event_id=first,
-                event_kind=event_kinds[first],
+                event_kind=events[first]["kind"],
                 payload_pointer=None,
             ))
     refs.sort(key=lambda r: r.id)

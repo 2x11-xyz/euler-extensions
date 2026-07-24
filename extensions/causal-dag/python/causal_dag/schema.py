@@ -416,5 +416,38 @@ def dumps(artifact: Artifact) -> str:
                       allow_nan=False) + "\n"
 
 
+# Closed key sets (§5): parsing rejects unknown or missing keys instead of
+# silently dropping or rewriting them on the next serialization.
+_TOP_KEYS = frozenset({"schema", "media_type", "generated_at", "session",
+                       "projection", "construction", "forest", "diagnostics"})
+_FOREST_KEYS = frozenset({"roots", "active_root", "nodes", "edges"})
+_NODE_KEYS = frozenset({"id", "root_id", "kind", "status", "title", "summary",
+                        "turns", "source_refs", "basis", "metadata"})
+_EDGE_KEYS = frozenset({"id", "from", "to", "class", "kind",
+                        "canonical_backbone", "source_refs", "basis", "metadata"})
+
+
+def _reject_constant(name: str):
+    raise ValueError(f"non-finite number {name} is not valid JSON")
+
+
+def _require_keys(d: Dict[str, Any], keys: frozenset, where: str) -> None:
+    if set(d) != keys:
+        unknown = sorted(set(d) - keys)
+        missing = sorted(keys - set(d))
+        raise ValueError(f"{where}: unknown keys {unknown}, missing keys {missing}")
+
+
 def loads(text: str) -> Artifact:
-    return Artifact.from_dict(json.loads(text))
+    """Strict parse: closed key sets, no NaN/Infinity, derived fields verified."""
+    d = json.loads(text, parse_constant=_reject_constant)
+    _require_keys(d, _TOP_KEYS, "artifact")
+    _require_keys(d["forest"], _FOREST_KEYS, "forest")
+    for n in d["forest"]["nodes"]:
+        _require_keys(n, _NODE_KEYS, f"node {n.get('id')}")
+    for e in d["forest"]["edges"]:
+        _require_keys(e, _EDGE_KEYS, f"edge {e.get('id')}")
+    artifact = Artifact.from_dict(d)
+    if d["forest"]["roots"] != artifact.roots():
+        raise ValueError("serialized forest.roots does not match the derived roots")
+    return artifact

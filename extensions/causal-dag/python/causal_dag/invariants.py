@@ -258,23 +258,31 @@ def check_acyclicity(art: Artifact) -> List[Finding]:
 
 
 def _has_cycle(adj: Dict[str, List[str]]) -> bool:
-    visiting: Set[str] = set()
+    # Iterative, like _maximum_depth: the validator must terminate (and not
+    # blow the recursion limit) on any input, including 1000+-node chains.
     visited: Set[str] = set()
-
-    def walk(node: str) -> bool:
-        if node in visited:
-            return False
-        if node in visiting:
-            return True
-        visiting.add(node)
-        for nxt in adj.get(node, ()):
-            if walk(nxt):
-                return True
-        visiting.discard(node)
-        visited.add(node)
-        return False
-
-    return any(walk(node) for node in adj)
+    for start in adj:
+        if start in visited:
+            continue
+        stack = [(start, iter(adj.get(start, ())))]
+        on_path = {start}
+        while stack:
+            node, children = stack[-1]
+            descended = False
+            for child in children:
+                if child in on_path:
+                    return True
+                if child in visited:
+                    continue
+                stack.append((child, iter(adj.get(child, ()))))
+                on_path.add(child)
+                descended = True
+                break
+            if not descended:
+                stack.pop()
+                on_path.discard(node)
+                visited.add(node)
+    return False
 
 
 def check_backbone_class(art: Artifact) -> List[Finding]:

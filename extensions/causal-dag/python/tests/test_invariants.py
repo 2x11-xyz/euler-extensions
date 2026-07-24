@@ -151,6 +151,52 @@ class RobustnessTest(unittest.TestCase):
         two.diagnostics = recompute_diagnostics(two)
         self.assertEqual(dumps(one), dumps(two))
 
+    def test_long_valid_chain_validates_without_recursion_error(self):
+        # A 1,400-node backbone chain is a legal graph; the validator must
+        # handle it iteratively (report-only, terminates on any input).
+        nodes = [_node("node-0000", "node-0000", "question", "open", 0, "ev-0000")]
+        edges = []
+        for i in range(1, 1400):
+            nid, prev = f"node-{i:04d}", f"node-{i - 1:04d}"
+            nodes.append(_node(nid, "node-0000", "investigation", "succeeded",
+                               i, f"ev-{i:04d}"))
+            edges.append(_edge(f"edge-{i:04d}", prev, nid, "structural",
+                               "continuation", True, f"ev-{i - 1:04d}"))
+        art = Artifact(
+            generated_at="2026-07-24T00:00:00Z",
+            session=Session("session-chain", EventRange("ev-0000", "ev-1399", True)),
+            projection=Projection("causal-dag", "ev-1399", "bounded_provenance_query", False),
+            construction=Construction("snapshot", "manual", "command"),
+            nodes=nodes, edges=edges, active_root="node-0000",
+        )
+        art.diagnostics = recompute_diagnostics(art)
+        self.assertEqual(check(art), [])
+        self.assertEqual(art.diagnostics.maximum_depth, 1399)
+
+
+class StrictLoadsTest(unittest.TestCase):
+    def test_nan_text_is_rejected(self):
+        import re
+        text = re.sub(r'"branching_ratio": [0-9.]+', '"branching_ratio": NaN',
+                      dumps(build_valid()))
+        self.assertIn("NaN", text)
+        with self.assertRaises(ValueError):
+            loads(text)
+
+    def test_unknown_top_level_key_is_rejected(self):
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["extra"] = True
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
+    def test_tampered_roots_are_rejected(self):
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["forest"]["roots"] = ["node-a-root"]  # drops the second derived root
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
 
 if __name__ == "__main__":
     unittest.main()

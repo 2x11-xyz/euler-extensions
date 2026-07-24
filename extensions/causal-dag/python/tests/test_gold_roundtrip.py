@@ -33,13 +33,13 @@ def _load_steps():
     return json.loads(row[0])["steps"]
 
 
-def _load_event_kinds():
-    kinds = {}
+def _load_events():
+    meta = {}
     with EVENTS.open() as fh:
         for line in fh:
             event = json.loads(line)
-            kinds[event["id"]] = event["kind"]
-    return kinds
+            meta[event["id"]] = {"kind": event["kind"], "ts": event["ts"]}
+    return meta
 
 
 @unittest.skipUnless(EXPORT.exists() and WALK_DB.exists() and EVENTS.exists(),
@@ -50,8 +50,8 @@ class GoldRoundTripTest(unittest.TestCase):
     def setUpClass(cls):
         cls.export = json.loads(EXPORT.read_text())
         cls.steps = _load_steps()
-        cls.event_kinds = _load_event_kinds()
-        cls.artifact = import_walk(cls.export, cls.steps, cls.event_kinds)
+        cls.events = _load_events()
+        cls.artifact = import_walk(cls.export, cls.steps, cls.events)
 
     def test_conversion_passes_all_invariants(self):
         self.assertEqual(check(self.artifact), [])
@@ -80,7 +80,11 @@ class GoldRoundTripTest(unittest.TestCase):
     def test_citations_carry_real_event_kinds(self):
         for node in self.artifact.nodes:
             for ref in node.source_refs:
-                self.assertEqual(ref.event_kind, self.event_kinds[ref.event_id])
+                self.assertEqual(ref.event_kind, self.events[ref.event_id]["kind"])
+
+    def test_generated_at_is_the_range_end_timestamp(self):
+        end = self.artifact.session.event_range.end
+        self.assertEqual(self.artifact.generated_at, self.events[end]["ts"])
 
 
 if __name__ == "__main__":

@@ -50,13 +50,18 @@ STEPS = [
     {"step_id": 3, "kind": "assistant", "event_ids": ["ev-e"]},
 ]
 
-EVENT_KINDS = {"ev-a": "user.message", "ev-b": "tool.call", "ev-c": "tool.result",
-               "ev-d": "tool.call", "ev-e": "assistant.message"}
+EVENTS = {
+    "ev-a": {"kind": "user.message", "ts": "2026-07-01T10:00:00Z"},
+    "ev-b": {"kind": "tool.call", "ts": "2026-07-01T10:01:00Z"},
+    "ev-c": {"kind": "tool.result", "ts": "2026-07-01T10:01:05Z"},
+    "ev-d": {"kind": "tool.call", "ts": "2026-07-01T10:02:00Z"},
+    "ev-e": {"kind": "assistant.message", "ts": "2026-07-01T10:03:00Z"},
+}
 
 
 class WalkImportTest(unittest.TestCase):
     def setUp(self):
-        self.artifact = import_walk(EXPORT, STEPS, EVENT_KINDS)
+        self.artifact = import_walk(EXPORT, STEPS, EVENTS)
 
     def test_passes_all_invariants(self):
         self.assertEqual(check(self.artifact), [])
@@ -65,9 +70,13 @@ class WalkImportTest(unittest.TestCase):
         goal = next(n for n in self.artifact.nodes if n.id == "n-goal")
         self.assertEqual(goal.source_refs[0].event_kind, "user.message")
 
-    def test_unknown_event_kind_is_an_error_not_a_guess(self):
+    def test_generated_at_is_the_range_end_timestamp(self):
+        self.assertEqual(self.artifact.session.event_range.end, "ev-e")
+        self.assertEqual(self.artifact.generated_at, "2026-07-01T10:03:00Z")
+
+    def test_unknown_event_is_an_error_not_a_guess(self):
         with self.assertRaises(ValueError):
-            import_walk(EXPORT, STEPS, {"ev-a": "user.message"})
+            import_walk(EXPORT, STEPS, {"ev-a": EVENTS["ev-a"]})
 
     def test_lossy_cell_emits_warning(self):
         try2 = next(n for n in self.artifact.nodes if n.id == "n-try2")
