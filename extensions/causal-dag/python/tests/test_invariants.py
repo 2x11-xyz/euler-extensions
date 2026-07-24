@@ -100,6 +100,17 @@ FAIL_CASES = [
                 setattr(a.edges[4].basis, "source_ref_ids", []))),
     ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(2, ["ev-2"]))),
     ("diagnostics", lambda a: setattr(a.diagnostics, "node_count", 999)),
+    ("schema_identity", lambda a: setattr(a, "schema", "euler.causal_dag.v3")),
+    ("construction", lambda a: setattr(a.construction, "operation", "rewrite")),
+    ("construction",
+     lambda a: setattr(a.construction, "predecessor_artifact_event_id", "ev-9")),
+    ("backbone_class", lambda a: setattr(a.edges[4], "canonical_backbone", True)),
+    ("degraded_marking",
+     lambda a: (setattr(a.edges[5], "edge_class", "chronology"),
+                setattr(a.edges[5], "kind", "sequence"))),
+    ("basis_required", lambda a: setattr(a.nodes[1], "basis", None)),
+    ("metadata_shadow", lambda a: a.nodes[1].metadata.update(status="open")),
+    ("turns_nonempty", lambda a: setattr(a.nodes[1], "turns", [])),
 ]
 
 
@@ -113,6 +124,32 @@ class FailCaseTest(unittest.TestCase):
                     art.diagnostics = recompute_diagnostics(art)
                 self.assertIn(name, _names(check(art)),
                               f"expected {name} to fire; got {_names(check(art))}")
+
+
+class RobustnessTest(unittest.TestCase):
+    def test_backbone_cycle_terminates_with_findings(self):
+        # A backbone cycle must produce findings, never hang the validator
+        # (the depth computation skips cycle edges instead of chasing them).
+        art = build_valid()
+        art.edges.append(
+            _edge("edge-7", "node-d", "node-a-root", "structural", "continuation",
+                  True, "ev-3"))
+        art.diagnostics = recompute_diagnostics(art)
+        self.assertIn("acyclicity", _names(check(art)))
+
+    def test_nan_diagnostics_refused_by_dumps(self):
+        art = build_valid()
+        art.diagnostics.branching_ratio = float("nan")
+        with self.assertRaises(ValueError):
+            dumps(art)
+
+    def test_metadata_insertion_order_does_not_change_bytes(self):
+        one, two = build_valid(), build_valid()
+        one.nodes[1].metadata = {"alpha": 1, "beta": {"y": 2, "x": 1}}
+        two.nodes[1].metadata = {"beta": {"x": 1, "y": 2}, "alpha": 1}
+        one.diagnostics = recompute_diagnostics(one)
+        two.diagnostics = recompute_diagnostics(two)
+        self.assertEqual(dumps(one), dumps(two))
 
 
 if __name__ == "__main__":

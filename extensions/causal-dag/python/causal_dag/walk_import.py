@@ -54,7 +54,7 @@ from typing import Any, Dict, List, Optional
 from .invariants import recompute_diagnostics
 from .schema import (
     Artifact, Basis, Construction, Edge, EventRange, Node, Projection,
-    Session, SourceRef, Turn,
+    Session, SourceRef, Turn, Warning,
 )
 
 KIND_MAP = {
@@ -82,19 +82,24 @@ STATUS_MAP: Dict[str, Dict[str, str]] = {
                   "abandoned": "abandoned", "inconclusive": "open", "blocked": "open"},
 }
 
-STEP_KIND_TO_EVENT_KIND = {
-    "user": "user.message",
-    "assistant": "model.reasoning",
-    "round": "tool.result",
-    "error": "tool.result",
-    "marker": "tool.result",
-}
+# Status cells the gold walk never exercises map with information loss; the
+# artifact must say so (honest degradation) — each use emits a warning.
+LOSSY_CELLS = frozenset({
+    ("question", "inconclusive"), ("investigation", "inconclusive"),
+    ("claim", "blocked"), ("synthesis", "inconclusive"), ("synthesis", "blocked"),
+    ("synthesis", "dead_end"), ("question", "dead_end"),
+})
 
 
-def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]]) -> Artifact:
-    """Project a walk-annotations.v2 export + its session steps into a v5 artifact."""
+def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
+                event_kinds: Dict[str, str]) -> Artifact:
+    """Project a walk-annotations.v2 export + its session steps into a v5 artifact.
+
+    ``event_kinds`` maps event id -> the event's real kind from the session's
+    provenance stream. Citations must be honest: a guessed kind is a wrong
+    citation, so an event without a known kind is an error, not a default.
+    """
     step_events = {s["step_id"]: list(s.get("event_ids", [])) for s in steps}
-    step_kind = {s["step_id"]: s.get("kind", "round") for s in steps}
 
     owned_steps: Dict[str, List[int]] = {}
     for entry in export["node_steps"]:
@@ -115,11 +120,14 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]]) -> Artifact
     # node id -> its evidence anchor (first event of its first owned turn).
     anchor: Dict[str, SourceRef] = {}
     nodes: List[Node] = []
+    lossy: Dict[tuple, List[str]] = {}
     for raw in export["nodes"]:
         nid = raw["node_id"]
         kind = KIND_MAP[raw["kind"]]
         status = STATUS_MAP[kind][raw["status"]]
-        turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events, step_kind)
+        if (kind, raw["status"]) in LOSSY_CELLS:
+            lossy.setdefault((kind, raw["status"], status), []).append(nid)
+        turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events, event_kinds)
         metadata: Dict[str, Any] = {}
         if kind == "synthesis":
             metadata["consolidation"] = raw["kind"] == "checkpoint"
@@ -155,21 +163,33 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]]) -> Artifact
         active_root=_active_root(nodes, old_kind),
     )
     artifact.diagnostics = recompute_diagnostics(artifact)
+    artifact.diagnostics.warnings = [
+        Warning(
+            code="lossy_status_mapping",
+            severity="warning",
+            message=f"old status {old!r} mapped lossily to {new!r} for kind {kind!r}",
+            node_ids=sorted(ids),
+        )
+        for (kind, old, new), ids in sorted(lossy.items())
+    ]
     return artifact
 
 
-def _turns_and_refs(node_id, step_ids, step_events, step_kind):
+def _turns_and_refs(node_id, step_ids, step_events, event_kinds):
     turns: List[Turn] = []
     refs: List[SourceRef] = []
     for step_id in sorted(step_ids):
         events = step_events.get(step_id, [])
         turns.append(Turn(step_id, events))
         if events:
+            first = events[0]
+            if first not in event_kinds:
+                raise ValueError(f"no event kind known for cited event {first}")
             refs.append(SourceRef(
                 id=f"{node_id}-t{step_id}",
                 kind="event",
-                event_id=events[0],
-                event_kind=STEP_KIND_TO_EVENT_KIND.get(step_kind.get(step_id, "round"), "tool.result"),
+                event_id=first,
+                event_kind=event_kinds[first],
                 payload_pointer=None,
             ))
     refs.sort(key=lambda r: r.id)

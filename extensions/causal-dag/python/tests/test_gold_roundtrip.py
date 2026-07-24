@@ -19,6 +19,7 @@ TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
 EXPORT = TOOL / "exports" / "01KXBZY130DSAMPT8C72558Z4J-gold-20260724.json"
 WALK_DB = TOOL / "walk.db"
 SESSION = "01KXBZY130DSAMPT8C72558Z4J"
+EVENTS = pathlib.Path.home() / ".euler" / "sessions" / SESSION / "events.jsonl"
 
 
 def _load_steps():
@@ -32,14 +33,25 @@ def _load_steps():
     return json.loads(row[0])["steps"]
 
 
-@unittest.skipUnless(EXPORT.exists() and WALK_DB.exists(),
-                     "gold export / walk.db not present (kept out of this public repo)")
+def _load_event_kinds():
+    kinds = {}
+    with EVENTS.open() as fh:
+        for line in fh:
+            event = json.loads(line)
+            kinds[event["id"]] = event["kind"]
+    return kinds
+
+
+@unittest.skipUnless(EXPORT.exists() and WALK_DB.exists() and EVENTS.exists(),
+                     "gold export / walk.db / session log not present "
+                     "(kept out of this public repo)")
 class GoldRoundTripTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.export = json.loads(EXPORT.read_text())
         cls.steps = _load_steps()
-        cls.artifact = import_walk(cls.export, cls.steps)
+        cls.event_kinds = _load_event_kinds()
+        cls.artifact = import_walk(cls.export, cls.steps, cls.event_kinds)
 
     def test_conversion_passes_all_invariants(self):
         self.assertEqual(check(self.artifact), [])
@@ -64,6 +76,11 @@ class GoldRoundTripTest(unittest.TestCase):
         once = dumps(self.artifact)
         twice = dumps(loads(once))
         self.assertEqual(once, twice)
+
+    def test_citations_carry_real_event_kinds(self):
+        for node in self.artifact.nodes:
+            for ref in node.source_refs:
+                self.assertEqual(ref.event_kind, self.event_kinds[ref.event_id])
 
 
 if __name__ == "__main__":

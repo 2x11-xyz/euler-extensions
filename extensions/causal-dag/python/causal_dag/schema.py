@@ -50,6 +50,26 @@ GENEALOGY_KINDS = frozenset({"repair", "pivot", "refutation"})
 
 BASIS_KINDS = ("direct", "cluster", "inferred", "chronology", "operator")
 
+# §5 construction enums, inherited from v3.
+CONSTRUCTION_OPERATIONS = ("snapshot", "incremental", "reframe", "final")
+CONSTRUCTION_POLICIES = ("manual", "rolling_only", "rolling_and_final", "final_only")
+CONSTRUCTION_TRIGGERS = ("command", "round_cadence", "explicit_reframe", "session_end")
+
+# Metadata may not shadow structural fields (v3 rule).
+METADATA_SHADOW_KEYS = frozenset(
+    {"id", "root_id", "kind", "status", "source_refs", "basis",
+     "class", "from", "to", "canonical_backbone"}
+)
+
+
+def _canon(value: Any) -> Any:
+    """Recursively sort dict keys so semantically equal values serialize identically."""
+    if isinstance(value, dict):
+        return {k: _canon(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return [_canon(v) for v in value]
+    return value
+
 
 @dataclass
 class SourceRef:
@@ -70,8 +90,8 @@ class SourceRef:
             "event_id": self.event_id,
             "event_kind": self.event_kind,
             "payload_pointer": self.payload_pointer,
-            "artifact": self.artifact,
-            "blob": self.blob,
+            "artifact": _canon(self.artifact),
+            "blob": _canon(self.blob),
         }
 
     @staticmethod
@@ -142,7 +162,7 @@ class Node:
             "turns": [t.to_dict() for t in sorted(self.turns, key=lambda t: t.step_id)],
             "source_refs": [r.to_dict() for r in sorted(self.source_refs, key=lambda r: r.id)],
             "basis": self.basis.to_dict() if self.basis else None,
-            "metadata": self.metadata,
+            "metadata": _canon(self.metadata),
         }
 
     @staticmethod
@@ -181,7 +201,7 @@ class Edge:
             "canonical_backbone": self.canonical_backbone,
             "source_refs": [r.to_dict() for r in sorted(self.source_refs, key=lambda r: r.id)],
             "basis": self.basis.to_dict() if self.basis else None,
-            "metadata": self.metadata,
+            "metadata": _canon(self.metadata),
         }
 
     @staticmethod
@@ -387,8 +407,13 @@ def _warning_key(w: Warning) -> tuple:
 
 
 def dumps(artifact: Artifact) -> str:
-    """Canonical, deterministic JSON text (trailing newline included)."""
-    return json.dumps(artifact.to_dict(), indent=2, ensure_ascii=False) + "\n"
+    """Canonical, deterministic, strict JSON text (trailing newline included).
+
+    ``allow_nan=False``: non-finite numbers have no JSON representation and
+    would silently break canonical byte equality — refuse them.
+    """
+    return json.dumps(artifact.to_dict(), indent=2, ensure_ascii=False,
+                      allow_nan=False) + "\n"
 
 
 def loads(text: str) -> Artifact:

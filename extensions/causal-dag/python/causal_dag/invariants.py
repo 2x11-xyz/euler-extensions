@@ -23,6 +23,8 @@ from typing import Callable, Dict, List, Set
 from .schema import (
     Artifact, Diagnostics, EDGE_KINDS_BY_CLASS, GENEALOGY_KINDS, KINDS,
     STATUS_BY_KIND, TERMINAL_STATUSES, BASIS_KINDS, DIAGNOSTIC_COUNTERS,
+    CONSTRUCTION_OPERATIONS, CONSTRUCTION_POLICIES, CONSTRUCTION_TRIGGERS,
+    MEDIA_TYPE, METADATA_SHADOW_KEYS, SCHEMA,
 )
 
 
@@ -44,6 +46,44 @@ def _backbone_parents(art: Artifact) -> Dict[str, List[str]]:
         if e.canonical_backbone and e.to_node in parents:
             parents[e.to_node].append(e.from_node)
     return parents
+
+
+def check_schema_identity(art: Artifact) -> List[Finding]:
+    """The artifact names itself correctly (§5): schema, media type, projection."""
+    out: List[Finding] = []
+    if art.schema != SCHEMA:
+        out.append(_f("schema_identity", f"schema is {art.schema!r}, expected {SCHEMA!r}"))
+    if art.media_type != MEDIA_TYPE:
+        out.append(_f("schema_identity", f"media_type is {art.media_type!r}"))
+    if art.projection.extension_id != "causal-dag":
+        out.append(_f("schema_identity", f"extension_id is {art.projection.extension_id!r}"))
+    if art.projection.basis != "bounded_provenance_query":
+        out.append(_f("schema_identity", f"projection basis is {art.projection.basis!r}"))
+    return out
+
+
+def check_construction(art: Artifact) -> List[Finding]:
+    """Construction enums and lineage pairing (§5, inherited from v3)."""
+    con = art.construction
+    out: List[Finding] = []
+    if con.operation not in CONSTRUCTION_OPERATIONS:
+        out.append(_f("construction", f"unknown operation {con.operation!r}"))
+    if con.policy not in CONSTRUCTION_POLICIES:
+        out.append(_f("construction", f"unknown policy {con.policy!r}"))
+    if con.trigger not in CONSTRUCTION_TRIGGERS:
+        out.append(_f("construction", f"unknown trigger {con.trigger!r}"))
+    has_pred = con.predecessor_artifact_event_id is not None
+    if has_pred != (con.predecessor_watermark_event_id is not None):
+        out.append(_f("construction", "predecessor artifact/watermark ids must pair"))
+    if con.operation == "snapshot" and has_pred:
+        out.append(_f("construction", "snapshot must not carry a predecessor"))
+    if con.operation == "incremental" and not has_pred:
+        out.append(_f("construction", "incremental requires a predecessor"))
+    if (con.operation == "final") != (con.trigger == "session_end"):
+        out.append(_f("construction", "operation final iff trigger session_end"))
+    if con.trigger == "explicit_reframe" and con.operation != "reframe":
+        out.append(_f("construction", "explicit_reframe requires operation reframe"))
+    return out
 
 
 def check_id_uniqueness(art: Artifact) -> List[Finding]:
@@ -237,6 +277,70 @@ def _has_cycle(adj: Dict[str, List[str]]) -> bool:
     return any(walk(node) for node in adj)
 
 
+def check_backbone_class(art: Artifact) -> List[Finding]:
+    """A backbone edge is structural, or a degraded chronology sequence (§3, v3)."""
+    out: List[Finding] = []
+    for e in art.edges:
+        if not e.canonical_backbone:
+            continue
+        if e.edge_class == "annotation":
+            out.append(_f("backbone_class",
+                          f"annotation edge {e.id} marked canonical backbone", edge_ids=[e.id]))
+        elif e.edge_class == "chronology" and e.kind != "sequence":
+            out.append(_f("backbone_class",
+                          f"chronology backbone edge {e.id} must be sequence", edge_ids=[e.id]))
+    return out
+
+
+def check_degraded_marking(art: Artifact) -> List[Finding]:
+    """Sequence edges exist only in degraded projections, and must be warned (§1.4, v3)."""
+    sequence_ids = sorted(e.id for e in art.edges if e.kind == "sequence")
+    if not sequence_ids:
+        return []
+    out: List[Finding] = []
+    if not art.projection.degraded:
+        out.append(_f("degraded_marking",
+                      "sequence edges present but projection.degraded is false",
+                      edge_ids=sequence_ids))
+    covered: Set[str] = set()
+    for w in art.diagnostics.warnings:
+        if w.code == "degraded_chronology":
+            covered.update(w.edge_ids)
+    missing = [eid for eid in sequence_ids if eid not in covered]
+    if missing:
+        out.append(_f("degraded_marking",
+                      "degraded_chronology warning must cover every sequence edge",
+                      edge_ids=missing))
+    return out
+
+
+def check_basis_required(art: Artifact) -> List[Finding]:
+    """Every node and edge carries a basis (v3: provenance is never optional)."""
+    out = [_f("basis_required", f"node {n.id} has no basis", node_ids=[n.id])
+           for n in art.nodes if n.basis is None]
+    out += [_f("basis_required", f"edge {e.id} has no basis", edge_ids=[e.id])
+            for e in art.edges if e.basis is None]
+    return out
+
+
+def check_metadata_shadow(art: Artifact) -> List[Finding]:
+    """Metadata may not shadow structural fields (v3)."""
+    out: List[Finding] = []
+    for owner in list(art.nodes) + list(art.edges):
+        shadowed = sorted(set(owner.metadata) & METADATA_SHADOW_KEYS)
+        if shadowed:
+            out.append(_f("metadata_shadow", f"{owner.id} metadata shadows {shadowed}"))
+    return out
+
+
+def check_turns_nonempty(art: Artifact) -> List[Finding]:
+    """Every node owns at least one turn (R1: turns are the atomic unit)."""
+    return [
+        _f("turns_nonempty", f"node {n.id} owns no turns", node_ids=[n.id])
+        for n in art.nodes if not n.turns
+    ]
+
+
 def check_terminal_children(art: Artifact) -> List[Finding]:
     """Terminal nodes take structural children only via repair, sharing evidence (§4.2)."""
     node_by_id = {n.id: n for n in art.nodes}
@@ -318,6 +422,8 @@ def check_diagnostics(art: Artifact) -> List[Finding]:
 # The invariant table. One entry per §4 rule (plus the envelope rules v5 inherits
 # from v3). Order is reporting order only; checks are independent.
 CHECKS: List[Callable[[Artifact], List[Finding]]] = [
+    check_schema_identity,
+    check_construction,
     check_id_uniqueness,
     check_canonical_ordering,
     check_vocabulary,
@@ -326,7 +432,12 @@ CHECKS: List[Callable[[Artifact], List[Finding]]] = [
     check_backbone_parent_count,
     check_root_membership,
     check_cross_root,
+    check_backbone_class,
     check_acyclicity,
+    check_degraded_marking,
+    check_basis_required,
+    check_metadata_shadow,
+    check_turns_nonempty,
     check_terminal_children,
     check_generative_content_backed,
     check_one_node_per_turn,
@@ -391,10 +502,31 @@ def recompute_diagnostics(art: Artifact) -> Diagnostics:
 
 
 def _maximum_depth(roots: List[str], adj: Dict[str, List[str]]) -> int:
-    best = 0
-    stack = [(r, 0) for r in roots]
-    while stack:
-        node, depth = stack.pop()
-        best = max(best, depth)
-        stack.extend((child, depth + 1) for child in adj.get(node, ()))
-    return best
+    """Longest backbone path, iterative and memoized.
+
+    Must terminate on any input: check_diagnostics runs regardless of what
+    check_acyclicity found, so cycle edges are skipped (their depth is
+    undefined and reported elsewhere) and shared subtrees compute once.
+    """
+    memo: Dict[str, int] = {}
+    for root in roots:
+        if root in memo:
+            continue
+        stack = [(root, iter(adj.get(root, ())))]
+        on_path = {root}
+        while stack:
+            node, children = stack[-1]
+            descended = False
+            for child in children:
+                if child in memo or child in on_path:
+                    continue
+                stack.append((child, iter(adj.get(child, ()))))
+                on_path.add(child)
+                descended = True
+                break
+            if not descended:
+                stack.pop()
+                on_path.discard(node)
+                memo[node] = max((1 + memo[c] for c in adj.get(node, ()) if c in memo),
+                                 default=0)
+    return max((memo[r] for r in roots), default=0)

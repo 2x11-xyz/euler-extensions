@@ -4,6 +4,18 @@ on:
     branches: [main]
   pull_request:
 jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: causal-dag tests
+        run: python -m unittest discover -s extensions/causal-dag/python/tests -v
   checks:
     runs-on: ubuntu-latest
     steps:
