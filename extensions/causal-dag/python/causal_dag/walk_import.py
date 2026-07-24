@@ -111,6 +111,10 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     ``generated_at`` equals the range-end event's timestamp (inherited v3 rule),
     not the export's wall-clock time.
     """
+    for key in ("session_id", "nodes", "node_steps", "edges"):
+        if key not in export:
+            raise ValueError(f"export missing {key!r}")
+
     order = {eid: i for i, eid in enumerate(events)}
     step_events = {s["step_id"]: list(s.get("event_ids", [])) for s in steps}
     for step_id, evs in step_events.items():
@@ -120,6 +124,10 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
 
     owned_steps: Dict[str, List[int]] = {}
     for entry in export["node_steps"]:
+        if entry["step_id"] not in step_events:
+            raise ValueError(
+                f"node_steps references step {entry['step_id']} absent from the "
+                f"session's steps — a turn cannot own events that do not exist")
         owned_steps.setdefault(entry["node_id"], []).append(entry["step_id"])
 
     old_kind = {n["node_id"]: n["kind"] for n in export["nodes"]}
@@ -139,9 +147,19 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     nodes: List[Node] = []
     lossy: Dict[tuple, List[str]] = {}
     for raw in export["nodes"]:
-        nid = raw["node_id"]
+        nid = raw.get("node_id")
+        if not nid:
+            raise ValueError("export node without a node_id")
+        if raw.get("kind") not in KIND_MAP:
+            raise ValueError(f"node {nid}: unknown kind {raw.get('kind')!r}")
         kind = KIND_MAP[raw["kind"]]
+        if raw.get("status") not in STATUS_MAP[kind]:
+            raise ValueError(f"node {nid}: unknown status {raw.get('status')!r} "
+                             f"for old kind {raw['kind']!r}")
         status = STATUS_MAP[kind][raw["status"]]
+        if not owned_steps.get(nid):
+            raise ValueError(f"node {nid} owns no turns — finish the assignment "
+                             f"pass before importing (R1)")
         if (kind, raw["status"]) in LOSSY_CELLS:
             lossy.setdefault((kind, raw["status"], status), []).append(nid)
         turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events,
@@ -202,6 +220,9 @@ def _turns_and_refs(node_id, step_ids, step_events, events, order):
     refs: List[SourceRef] = []
     for step_id in sorted(step_ids):
         event_ids = step_events.get(step_id, [])
+        if not event_ids:
+            raise ValueError(f"step {step_id} owns no events — an empty turn "
+                             f"span cites nothing (R1)")
         if len(set(event_ids)) != len(event_ids):
             raise ValueError(f"turn {step_id} lists duplicate events")
         # v5 turns are ordered event-id spans: normalize to stream order.
@@ -221,7 +242,12 @@ def _turns_and_refs(node_id, step_ids, step_events, events, order):
 
 
 def _edge(raw: Dict[str, Any], anchor: Dict[str, SourceRef]) -> Edge:
-    eid = raw["edge_id"]
+    eid = raw.get("edge_id")
+    if not eid or "class" not in raw or "kind" not in raw:
+        raise ValueError(f"export edge {eid!r} missing edge_id/class/kind")
+    # Unknown class/kind values flow through: they need no mapping, and the
+    # invariant checker reports them (R7: operator input is reported, not
+    # rejected). Only unmappable input raises.
     parent_ref = anchor.get(raw["from_node"])
     source_refs: List[SourceRef] = []
     if parent_ref is not None:

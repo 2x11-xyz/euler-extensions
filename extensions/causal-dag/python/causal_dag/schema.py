@@ -63,12 +63,18 @@ METADATA_SHADOW_KEYS = frozenset(
 )
 
 
-def _canon(value: Any) -> Any:
-    """Recursively sort dict keys so semantically equal values serialize identically."""
+def _canon(value: Any, _depth: int = 0) -> Any:
+    """Recursively sort dict keys so semantically equal values serialize identically.
+
+    Depth-capped: unbounded nesting would overflow the stack during dumps, so
+    absurd inputs fail loudly here instead.
+    """
+    if _depth > 64:
+        raise ValueError("metadata nesting deeper than 64 levels")
     if isinstance(value, dict):
-        return {k: _canon(value[k]) for k in sorted(value)}
+        return {k: _canon(value[k], _depth + 1) for k in sorted(value)}
     if isinstance(value, list):
-        return [_canon(v) for v in value]
+        return [_canon(v, _depth + 1) for v in value]
     return value
 
 
@@ -110,10 +116,13 @@ class Basis:
     source_ref_ids: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
+        # Serialized verbatim: silently sorting/deduping here would erase
+        # violations the validator reports (canonical order is the
+        # producer's job; the checker enforces it).
         return {
             "kind": self.kind,
             "summary": self.summary,
-            "source_ref_ids": sorted(set(self.source_ref_ids)),
+            "source_ref_ids": list(self.source_ref_ids),
         }
 
     @staticmethod
@@ -160,8 +169,8 @@ class Node:
             "status": self.status,
             "title": self.title,
             "summary": self.summary,
-            "turns": [t.to_dict() for t in sorted(self.turns, key=lambda t: t.step_id)],
-            "source_refs": [r.to_dict() for r in sorted(self.source_refs, key=lambda r: r.id)],
+            "turns": [t.to_dict() for t in self.turns],
+            "source_refs": [r.to_dict() for r in self.source_refs],
             "basis": self.basis.to_dict() if self.basis else None,
             "metadata": _canon(self.metadata),
         }
@@ -200,7 +209,7 @@ class Edge:
             "class": self.edge_class,
             "kind": self.kind,
             "canonical_backbone": self.canonical_backbone,
-            "source_refs": [r.to_dict() for r in sorted(self.source_refs, key=lambda r: r.id)],
+            "source_refs": [r.to_dict() for r in self.source_refs],
             "basis": self.basis.to_dict() if self.basis else None,
             "metadata": _canon(self.metadata),
         }
@@ -229,9 +238,9 @@ class Warning:
             "code": self.code,
             "severity": self.severity,
             "message": self.message,
-            "node_ids": sorted(self.node_ids),
-            "edge_ids": sorted(self.edge_ids),
-            "source_ref_ids": sorted(self.source_ref_ids),
+            "node_ids": list(self.node_ids),
+            "edge_ids": list(self.edge_ids),
+            "source_ref_ids": list(self.source_ref_ids),
         }
 
     @staticmethod
@@ -277,7 +286,7 @@ class Diagnostics:
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {c: getattr(self, c) for c in DIAGNOSTIC_COUNTERS}
-        out["warnings"] = [w.to_dict() for w in sorted(self.warnings, key=_warning_key)]
+        out["warnings"] = [w.to_dict() for w in self.warnings]
         return out
 
     @staticmethod
@@ -368,8 +377,10 @@ class Artifact:
             "forest": {
                 "roots": self.roots(),
                 "active_root": self.active_root,
-                "nodes": [n.to_dict() for n in sorted(self.nodes, key=lambda n: n.id)],
-                "edges": [e.to_dict() for e in sorted(self.edges, key=lambda e: e.id)],
+                # Verbatim order: sorting here would silently repair the
+                # canonical_ordering violations the validator reports.
+                "nodes": [n.to_dict() for n in self.nodes],
+                "edges": [e.to_dict() for e in self.edges],
             },
             "diagnostics": self.diagnostics.to_dict(),
         }
@@ -398,13 +409,6 @@ class Artifact:
             schema=d["schema"],
             media_type=d["media_type"],
         )
-
-
-def _warning_key(w: Warning) -> tuple:
-    rank = {"error": 0, "warning": 1, "info": 2}.get(w.severity, 3)
-    return (w.code, rank, w.message,
-            tuple(sorted(w.node_ids)), tuple(sorted(w.edge_ids)),
-            tuple(sorted(w.source_ref_ids)))
 
 
 def dumps(artifact: Artifact) -> str:
@@ -457,6 +461,21 @@ def _reject_constant(name: str):
     raise ValueError(f"non-finite number {name} is not valid JSON")
 
 
+def _finite(v: Any) -> bool:
+    try:
+        return math.isfinite(v)
+    except OverflowError:  # int too large for float conversion
+        return False
+
+
+def _utf8(s: str) -> bool:
+    try:
+        s.encode("utf-8")
+        return True
+    except UnicodeEncodeError:  # lone surrogates survive json.loads
+        return False
+
+
 def _check_type(v: Any, kind: str, where: str) -> None:
     base = kind.rstrip("?")
     if v is None:
@@ -464,22 +483,42 @@ def _check_type(v: Any, kind: str, where: str) -> None:
             return
         raise ValueError(f"{where}: null is not allowed")
     if base == "str":
-        ok = isinstance(v, str)
+        ok = isinstance(v, str) and _utf8(v)
     elif base == "bool":
         ok = isinstance(v, bool)
     elif base == "int":
         ok = isinstance(v, int) and not isinstance(v, bool)
     elif base == "float":
         ok = (isinstance(v, (int, float)) and not isinstance(v, bool)
-              and math.isfinite(v))
+              and _finite(v))
     elif base == "dict":
         ok = isinstance(v, dict)
     elif base == "list":
         ok = isinstance(v, list)
     else:  # list[str]
-        ok = isinstance(v, list) and all(isinstance(x, str) for x in v)
+        ok = isinstance(v, list) and all(isinstance(x, str) and _utf8(x) for x in v)
     if not ok:
         raise ValueError(f"{where}: expected {base}, got {type(v).__name__}")
+
+
+def _check_opaque(v: Any, where: str, depth: int = 0) -> None:
+    """Validate an open-shape value (metadata, artifact, blob): finite numbers,
+    encodable strings, bounded nesting."""
+    if depth > 32:
+        raise ValueError(f"{where}: nesting deeper than 32 levels")
+    if isinstance(v, dict):
+        for key, val in v.items():
+            if not isinstance(key, str) or not _utf8(key):
+                raise ValueError(f"{where}: unencodable object key")
+            _check_opaque(val, f"{where}.{key}", depth + 1)
+    elif isinstance(v, list):
+        for i, val in enumerate(v):
+            _check_opaque(val, f"{where}[{i}]", depth + 1)
+    elif isinstance(v, str):
+        if not _utf8(v):
+            raise ValueError(f"{where}: unencodable string")
+    elif isinstance(v, float) and not _finite(v):
+        raise ValueError(f"{where}: non-finite number")
 
 
 def _check(d: Any, spec: Dict[str, str], where: str) -> None:
@@ -493,17 +532,23 @@ def _check(d: Any, spec: Dict[str, str], where: str) -> None:
 
 
 def _check_owner(d: Dict[str, Any], where: str) -> None:
-    for turn in d.get("turns", ()):
-        _check(turn, _SPEC_TURN, f"{where} turn")
-    for ref in d["source_refs"]:
-        _check(ref, _SPEC_REF, f"{where} source_ref {ref.get('id')}")
+    # Labels use indices, never element fields: a non-dict element must fail
+    # inside _check with a ValueError, not while building its label.
+    for i, turn in enumerate(d.get("turns", ())):
+        _check(turn, _SPEC_TURN, f"{where}.turns[{i}]")
+    for i, ref in enumerate(d["source_refs"]):
+        _check(ref, _SPEC_REF, f"{where}.source_refs[{i}]")
+        if isinstance(ref, dict):
+            _check_opaque(ref.get("artifact"), f"{where}.source_refs[{i}].artifact")
+            _check_opaque(ref.get("blob"), f"{where}.source_refs[{i}].blob")
     if d["basis"] is not None:
-        _check(d["basis"], _SPEC_BASIS, f"{where} basis")
+        _check(d["basis"], _SPEC_BASIS, f"{where}.basis")
+    _check_opaque(d["metadata"], f"{where}.metadata")
 
 
 def loads(text: str) -> Artifact:
     """Strict parse: closed keys and value types at every level, no NaN/Infinity,
-    derived fields verified."""
+    derived fields verified. Rejection is always a ValueError."""
     d = json.loads(text, parse_constant=_reject_constant)
     _check(d, _SPEC_TOP, "artifact")
     _check(d["session"], _SPEC_SESSION, "session")
@@ -512,14 +557,14 @@ def loads(text: str) -> Artifact:
     _check(d["construction"], _SPEC_CONSTRUCTION, "construction")
     _check(d["forest"], _SPEC_FOREST, "forest")
     _check(d["diagnostics"], _SPEC_DIAG, "diagnostics")
-    for w in d["diagnostics"]["warnings"]:
-        _check(w, _SPEC_WARNING, f"warning {w.get('code')}")
-    for n in d["forest"]["nodes"]:
-        _check(n, _SPEC_NODE, f"node {n.get('id')}")
-        _check_owner(n, f"node {n.get('id')}")
-    for e in d["forest"]["edges"]:
-        _check(e, _SPEC_EDGE, f"edge {e.get('id')}")
-        _check_owner(e, f"edge {e.get('id')}")
+    for i, w in enumerate(d["diagnostics"]["warnings"]):
+        _check(w, _SPEC_WARNING, f"diagnostics.warnings[{i}]")
+    for i, n in enumerate(d["forest"]["nodes"]):
+        _check(n, _SPEC_NODE, f"forest.nodes[{i}]")
+        _check_owner(n, f"forest.nodes[{i}]")
+    for i, e in enumerate(d["forest"]["edges"]):
+        _check(e, _SPEC_EDGE, f"forest.edges[{i}]")
+        _check_owner(e, f"forest.edges[{i}]")
     artifact = Artifact.from_dict(d)
     if d["forest"]["roots"] != artifact.roots():
         raise ValueError("serialized forest.roots does not match the derived roots")

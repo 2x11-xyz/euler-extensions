@@ -106,7 +106,14 @@ completeness: for any terminal node, "what would disappear had this failure
 not happened?" must be reachable via its outgoing pivot/repair/refutation
 edges.
 
-## 4. Structural invariants (machine-checkable; the rulings)
+## 4. Structural invariants (the rulings)
+
+Checkability varies and the checker must be honest about it: rules 1, 2, 6
+and 9 are fully machine-checkable; rules 3 and 4 have mechanical *shadows*
+(fork/decomposition never springs from a synthesis; verification never
+chains off a verification target) while their full intent — the
+abandonment counterfactual — stays in the review lane; rules 5, 7 and 8
+are intent/lifecycle rules a static snapshot cannot check at all.
 
 1. One node per turn; nodes may span non-contiguous turns (R1, R2).
 2. Terminal-status nodes take structural children only via `repair` edges,

@@ -17,7 +17,6 @@ compares against it.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Set
 
@@ -25,7 +24,7 @@ from .schema import (
     Artifact, Diagnostics, EDGE_KINDS_BY_CLASS, GENEALOGY_KINDS, KINDS,
     STATUS_BY_KIND, TERMINAL_STATUSES, BASIS_KINDS, DIAGNOSTIC_COUNTERS,
     CONSTRUCTION_OPERATIONS, CONSTRUCTION_POLICIES, CONSTRUCTION_TRIGGERS,
-    MEDIA_TYPE, METADATA_SHADOW_KEYS, SCHEMA,
+    MEDIA_TYPE, METADATA_SHADOW_KEYS, SCHEMA, _finite,
 )
 
 
@@ -97,7 +96,7 @@ def check_id_uniqueness(art: Artifact) -> List[Finding]:
         seen[n.id] = "node"
     for e in art.edges:
         if e.id in seen:
-            out.append(_f("id_uniqueness", f"node/edge id collision {e.id}", edge_ids=[e.id]))
+            out.append(_f("id_uniqueness", f"duplicate id {e.id}", edge_ids=[e.id]))
         seen[e.id] = "edge"
     refs: Set[str] = set()
     for owner in list(art.nodes) + list(art.edges):
@@ -127,6 +126,10 @@ def check_canonical_ordering(art: Artifact) -> List[Finding]:
             out.append(_f("canonical_ordering", "source_refs not sorted by id"))
         if owner.basis and not sorted_unique(owner.basis.source_ref_ids):
             out.append(_f("canonical_ordering", "basis.source_ref_ids not sorted/unique"))
+    for n in art.nodes:
+        if not sorted_unique([t.step_id for t in n.turns]):
+            out.append(_f("canonical_ordering",
+                          f"node {n.id} turns not sorted by step_id", node_ids=[n.id]))
     return out
 
 
@@ -343,11 +346,18 @@ def check_metadata_shadow(art: Artifact) -> List[Finding]:
 
 
 def check_turns_nonempty(art: Artifact) -> List[Finding]:
-    """Every node owns at least one turn (R1: turns are the atomic unit)."""
-    return [
+    """Every node owns at least one turn, and every turn owns at least one
+    event (R1: a turn is an event span — an empty span cites nothing)."""
+    out = [
         _f("turns_nonempty", f"node {n.id} owns no turns", node_ids=[n.id])
         for n in art.nodes if not n.turns
     ]
+    out += [
+        _f("turns_nonempty", f"node {n.id} turn {t.step_id} owns no events",
+           node_ids=[n.id])
+        for n in art.nodes for t in n.turns if not t.event_ids
+    ]
+    return out
 
 
 def check_terminal_children(art: Artifact) -> List[Finding]:
@@ -371,6 +381,35 @@ def check_terminal_children(art: Artifact) -> List[Finding]:
     return out
 
 
+def check_subgoal_forks_from_goal(art: Artifact) -> List[Finding]:
+    """Structural fork/decomposition edges spring from questions or
+    investigations, never from a synthesis (§4.3, R9's mechanical shadow —
+    the full 'would it survive the other branch's abandonment' test stays
+    in the review lane)."""
+    kind_of = {n.id: n.kind for n in art.nodes}
+    return [
+        _f("subgoal_forks_from_goal",
+           f"edge {e.id}: {e.kind} springs from a synthesis", edge_ids=[e.id])
+        for e in art.edges
+        if e.edge_class == "structural" and e.kind in ("fork", "decomposition")
+        and kind_of.get(e.from_node) == "synthesis"
+    ]
+
+
+def check_verification_fans(art: Artifact) -> List[Finding]:
+    """Verification fans from the node it verifies; a verification edge out of
+    a node that is itself a verification target is a chain (§4.4, R10 —
+    fix-chains ride repair/refinement edges, not verification)."""
+    verified = {e.to_node for e in art.edges if e.kind == "verification"}
+    return [
+        _f("verification_fans",
+           f"edge {e.id}: verification chained off a verification target",
+           edge_ids=[e.id])
+        for e in art.edges
+        if e.kind == "verification" and e.from_node in verified
+    ]
+
+
 def check_generative_content_backed(art: Artifact) -> List[Finding]:
     """Generative edges cite the failure they spring from — never adjacency alone (§4.6)."""
     node_by_id = {n.id: n for n in art.nodes}
@@ -386,19 +425,24 @@ def check_generative_content_backed(art: Artifact) -> List[Finding]:
 
 
 def check_one_node_per_turn(art: Artifact) -> List[Finding]:
-    """A turn — and its events — belong to at most one node (R1, R2)."""
+    """A turn — and its events — appear exactly once, anywhere (R1, R2).
+
+    Re-occurrence *within* one node is as illegal as sharing across nodes:
+    the same turn listed twice, or the same event in two spans, both assert
+    ownership twice.
+    """
     step_owner: Dict[int, str] = {}
     event_owner: Dict[str, str] = {}
     out: List[Finding] = []
     for n in art.nodes:
         for turn in n.turns:
-            if turn.step_id in step_owner and step_owner[turn.step_id] != n.id:
+            if turn.step_id in step_owner:
                 out.append(_f("one_node_per_turn",
                               f"turn {turn.step_id} owned by {step_owner[turn.step_id]} and {n.id}",
                               node_ids=[n.id]))
             step_owner[turn.step_id] = n.id
             for ev in turn.event_ids:
-                if ev in event_owner and event_owner[ev] != n.id:
+                if ev in event_owner:
                     out.append(_f("one_node_per_turn",
                                   f"event {ev} owned by {event_owner[ev]} and {n.id}", node_ids=[n.id]))
                 event_owner[ev] = n.id
@@ -412,10 +456,11 @@ def check_diagnostics(art: Artifact) -> List[Finding]:
     for counter in DIAGNOSTIC_COUNTERS:
         actual, expected = getattr(art.diagnostics, counter), getattr(computed, counter)
         if isinstance(expected, float):
-            # NaN compares unequal to everything, so an explicit finiteness
-            # guard is required — abs(NaN - x) > eps is False.
+            # NaN compares unequal to everything (abs(NaN - x) > eps is False)
+            # and math.isfinite raises OverflowError on huge ints, so both need
+            # explicit guards — check() must report, never raise.
             numeric = isinstance(actual, (int, float)) and not isinstance(actual, bool)
-            if not numeric or not math.isfinite(actual) or abs(actual - expected) > 1e-6:
+            if not numeric or not _finite(actual) or abs(actual - expected) > 1e-6:
                 out.append(_f("diagnostics", f"{counter} is {actual}, expected {expected}"))
         elif actual != expected:
             out.append(_f("diagnostics", f"{counter} is {actual}, expected {expected}"))
@@ -423,6 +468,8 @@ def check_diagnostics(art: Artifact) -> List[Finding]:
     edge_ids = {e.id for e in art.edges}
     ref_ids = {r.id for owner in list(art.nodes) + list(art.edges) for r in owner.source_refs}
     for w in art.diagnostics.warnings:
+        if w.severity not in ("error", "warning", "info"):
+            out.append(_f("diagnostics", f"warning {w.code} has unknown severity {w.severity!r}"))
         if (set(w.node_ids) - node_ids or set(w.edge_ids) - edge_ids
                 or set(w.source_ref_ids) - ref_ids):
             out.append(_f("diagnostics", f"warning {w.code} references an unknown id"))
@@ -431,8 +478,11 @@ def check_diagnostics(art: Artifact) -> List[Finding]:
     return out
 
 
-# The invariant table. One entry per §4 rule (plus the envelope rules v5 inherits
-# from v3). Order is reporting order only; checks are independent.
+# The invariant table (plus the envelope rules v5 inherits from v3). §4 rules
+# 3 and 4 are covered by mechanical shadows (subgoal_forks_from_goal,
+# verification_fans); rules 5, 7 and 8 are intent/lifecycle rules that a
+# static snapshot cannot check — they live in the review lane, not here.
+# Order is reporting order only; checks are independent.
 CHECKS: List[Callable[[Artifact], List[Finding]]] = [
     check_schema_identity,
     check_construction,
@@ -451,6 +501,8 @@ CHECKS: List[Callable[[Artifact], List[Finding]]] = [
     check_metadata_shadow,
     check_turns_nonempty,
     check_terminal_children,
+    check_subgoal_forks_from_goal,
+    check_verification_fans,
     check_generative_content_backed,
     check_one_node_per_turn,
     check_diagnostics,
@@ -504,6 +556,9 @@ def recompute_diagnostics(art: Artifact) -> Diagnostics:
         source_backed_edge_count=sum(1 for e in art.edges if source_backed(e)),
         inferred_edge_count=sum(1 for e in art.edges
                                 if e.basis and e.basis.kind in ("inferred", "chronology")),
+        # Always 0 in M1: counting unresolvable refs needs the event stream,
+        # which belongs to the projection lane. The field exists for artifact
+        # compatibility, not as a live measurement yet.
         missing_source_ref_count=0,
         degraded_chronology=sequence > 0,
         projection_heavy_branching=weak_backbone > source_backed_backbone,

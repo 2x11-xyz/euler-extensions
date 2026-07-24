@@ -111,6 +111,16 @@ FAIL_CASES = [
     ("basis_required", lambda a: setattr(a.nodes[1], "basis", None)),
     ("metadata_shadow", lambda a: a.nodes[1].metadata.update(status="open")),
     ("turns_nonempty", lambda a: setattr(a.nodes[1], "turns", [])),
+    ("turns_nonempty", lambda a: setattr(a.nodes[1], "turns", [Turn(1, [])])),
+    ("canonical_ordering",
+     lambda a: setattr(a.nodes[1], "turns", [Turn(9, ["ev-9"]), Turn(8, ["ev-8"])])),
+    ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(1, ["ev-1b"]))),
+    ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(7, ["ev-1"]))),
+    ("subgoal_forks_from_goal",
+     lambda a: a.edges.append(_edge("edge-8", "node-e", "node-d", "structural", "fork", False, "ev-4"))),
+    ("verification_fans",
+     lambda a: (a.edges.append(_edge("edge-8", "node-a-root", "node-b", "structural", "verification", False, "ev-0")),
+                a.edges.append(_edge("edge-9", "node-b", "node-d", "structural", "verification", False, "ev-1")))),
 ]
 
 
@@ -217,6 +227,57 @@ class StrictLoadsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             loads(json.dumps(d))
 
+    def test_non_dict_list_elements_reject_with_valueerror(self):
+        # Never AttributeError: rejection is always ValueError.
+        import json
+        for path, bad in ((("forest", "nodes"), "oops"),
+                          (("forest", "edges"), 7),
+                          (("diagnostics", "warnings"), ["x"]),
+                          (("forest", "nodes", 0, "source_refs"), True)):
+            with self.subTest(path=path):
+                d = json.loads(dumps(build_valid()))
+                target = d
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]].append(bad)
+                with self.assertRaises(ValueError):
+                    loads(json.dumps(d))
+
+    def test_huge_int_in_float_field_rejected(self):
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["diagnostics"]["branching_ratio"] = 10 ** 400
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
+    def test_nonfinite_metadata_literal_rejected(self):
+        # 1e400 parses to inf without hitting parse_constant.
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["forest"]["nodes"][0]["metadata"] = {"x": 1e308 * 10}
+        text = json.dumps(d).replace("Infinity", "1e400")
+        with self.assertRaises(ValueError):
+            loads(text)
+
+    def test_deep_metadata_rejected(self):
+        import json
+        deep = {}
+        cursor = deep
+        for _ in range(100):
+            cursor["d"] = {}
+            cursor = cursor["d"]
+        d = json.loads(dumps(build_valid()))
+        d["forest"]["nodes"][0]["metadata"] = deep
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
+    def test_lone_surrogate_rejected(self):
+        import json
+        d = json.loads(dumps(build_valid()))
+        d["forest"]["nodes"][0]["title"] = "\ud800"
+        with self.assertRaises(ValueError):
+            loads(json.dumps(d))
+
     def test_mistyped_values_are_rejected(self):
         import json
         mutations = [
@@ -241,6 +302,27 @@ class StrictLoadsTest(unittest.TestCase):
         art = build_valid()
         art.diagnostics.branching_ratio = float("nan")
         self.assertIn("diagnostics", _names(check(art)))
+
+    def test_huge_int_diagnostics_reported_not_raised(self):
+        # math.isfinite raises OverflowError on huge ints; check() never raises.
+        art = build_valid()
+        art.diagnostics.branching_ratio = 10 ** 400
+        self.assertIn("diagnostics", _names(check(art)))
+
+    def test_unknown_warning_severity_is_a_finding(self):
+        from causal_dag.schema import Warning as W
+        art = build_valid()
+        art.diagnostics.warnings.append(W("odd", "catastrophic", "message"))
+        self.assertIn("diagnostics", _names(check(art)))
+
+    def test_serializer_preserves_reported_violations(self):
+        # dumps must never silently repair what check reports: a duplicated
+        # basis ref id survives the round trip and is still flagged.
+        art = build_valid()
+        rid = art.nodes[0].basis.source_ref_ids[0]
+        art.nodes[0].basis.source_ref_ids = [rid, rid]
+        self.assertIn("canonical_ordering", _names(check(art)))
+        self.assertIn("canonical_ordering", _names(check(loads(dumps(art)))))
 
 
 if __name__ == "__main__":

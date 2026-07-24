@@ -40,18 +40,32 @@ phases and are deliberately not stubbed).
 | `cross_root` | backbone edges stay intra-root; cross-root edges are annotations |
 | `acyclicity` | structural, backbone, chronology subgraphs are acyclic |
 | `terminal_children` | terminal nodes take only repair children, sharing evidence (§4.2) |
+| `subgoal_forks_from_goal` | fork/decomposition never springs from a synthesis (§4.3 shadow) |
+| `verification_fans` | verification never chains off a verification target (§4.4 shadow) |
 | `generative_content_backed` | repair/pivot/refutation edges cite the failure (§4.6) |
-| `one_node_per_turn` | a turn and its events belong to at most one node (R1, R2) |
+| `one_node_per_turn` | a turn and its events appear exactly once, anywhere (R1, R2) |
 | `diagnostics` | counters match a fresh recomputation; warnings resolve (§5) |
+
+Plus the envelope checks: `schema_identity`, `construction`, `backbone_class`,
+`degraded_marking`, `basis_required`, `metadata_shadow`, `turns_nonempty`.
+§4 rules 5, 7 and 8 (integration-to-goal intent, born-open, node-level grading)
+are intent/lifecycle rules a static snapshot cannot check — they live in the
+review lane, not this table.
 
 ## LOC budget (a stated contract)
 
-- core (`schema.py` + `invariants.py` + `walk_import.py`) ≤ ~1,200 logic lines,
-  and the three files ≤ ~1,000 lines together;
-- whole extension ≤ ~4,000;
+- core (`schema.py` + `invariants.py` + `walk_import.py`) ≤ ~1,400 non-blank
+  lines — revised up from the original ~1,200 after five review rounds of
+  envelope hardening (typed strict parsing, iterative traversals, importer
+  honesty); the additions are missing checks, not padding, and raising the
+  line honestly beats gaming it;
+- Python extension code (this directory, excluding tests) ≤ ~4,000 as later
+  milestones land; the archived Rust prior art under `../spec/` is reference
+  material and does not count;
 - tests ≤ logic.
 
-Measure with e.g. `grep -cve '^\s*$' causal_dag/*.py`.
+Measure with `grep -cve '^\s*$' causal_dag/*.py` (currently: core 1,260,
+tests 514).
 
 ## Running the tests
 

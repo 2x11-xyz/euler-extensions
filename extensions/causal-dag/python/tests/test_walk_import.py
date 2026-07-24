@@ -84,6 +84,38 @@ class WalkImportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_walk(EXPORT, STEPS, partial)
 
+    def test_unknown_kind_or_status_is_a_contextual_error(self):
+        import copy
+        for field, bad in (("kind", "experiment"), ("status", "wontfix")):
+            with self.subTest(field=field):
+                export = copy.deepcopy(EXPORT)
+                export["nodes"][1][field] = bad
+                with self.assertRaises(ValueError) as ctx:
+                    import_walk(export, STEPS, EVENTS)
+                self.assertIn(bad, str(ctx.exception))
+
+    def test_phantom_step_reference_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        export["node_steps"].append({"node_id": "n-try2", "step_id": 99})
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
+    def test_node_owning_no_steps_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        export["nodes"].append({"node_id": "n-orphan", "kind": "claim",
+                                "status": "open", "title": "Orphan", "note": ""})
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
+    def test_missing_export_key_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        del export["edges"]
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
     def test_range_follows_stream_order_not_id_order(self):
         # Euler event ids are non-monotonic ULIDs: id sort order can invert
         # stream order. The range must follow the stream.
