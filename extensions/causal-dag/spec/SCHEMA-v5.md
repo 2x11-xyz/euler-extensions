@@ -122,9 +122,14 @@ edges.
 5. Integration attaches to the goal it delivers, drawing from contributing
    branches via annotations (R11).
 6. Generative edges (`repair`, `pivot`, `refutation`) must be
-   content-backed: the citing node's source_refs overlap the failure's
-   evidence or cite its counterexample (Q4 discipline). Adjacency alone
-   never justifies an edge.
+   content-backed: the **edge's** source_refs overlap the failure (from)
+   node's evidence or cite its counterexample (Q4 discipline). Adjacency
+   alone never justifies an edge. The evidence lives on the edge, not on
+   the citing node — under turn atomicity (R1) two nodes own disjoint
+   turns, so node-to-node event overlap is structurally impossible; this
+   matches how v3's conformance suite enforced the terminal-repair rule.
+   The same edge-carries-evidence reading applies to the repair rule in
+   invariant 2.
 7. Nodes are created `open` (R3).
 8. Statuses are graded on the node — the set of turns — never per turn (R6).
 9. Backbone integrity violations in *operator/annotation* inputs are
@@ -146,6 +151,13 @@ active_root, nodes, edges}`, `diagnostics` — with:
   basis, metadata`. `turns[]` is new: the ordered event-id spans of the
   turns the node owns (R1) — segmentation is first-class, not recoverable
   only from source_refs. `root_id` is retained (derived) for viewer compat.
+- Edge source_refs: every edge carries its own citations. For
+  operator-asserted graphs (walk imports) where the human drew edges
+  without explicit citations, the converter derives one `event` ref
+  anchored on the from-node's evidence — which is what makes repair/
+  pivot/refutation edges share evidence with the failure they spring
+  from by construction (§4.2, §4.6). Observer-asserted edges must cite
+  their evidence explicitly.
 - Diagnostics: v3's recomputed counter set carries over where meaningful;
   counters referring to removed concepts (`root_count` by kind) re-derive
   from topology. Two additions: `refuted_claim_count` and
