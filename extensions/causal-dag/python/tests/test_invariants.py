@@ -217,6 +217,31 @@ class StrictLoadsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             loads(json.dumps(d))
 
+    def test_mistyped_values_are_rejected(self):
+        import json
+        mutations = [
+            (("session", "event_range", "complete"), "yes"),
+            (("projection", "degraded"), 0),          # int is not bool
+            (("forest", "nodes", 0, "title"), 42),
+            (("diagnostics", "node_count"), 6.5),     # float is not int
+            (("forest", "nodes", 0, "turns", 0, "step_id"), True),  # bool is not int
+        ]
+        for path, bad in mutations:
+            with self.subTest(path=path):
+                d = json.loads(dumps(build_valid()))
+                target = d
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = bad
+                with self.assertRaises(ValueError):
+                    loads(json.dumps(d))
+
+    def test_nan_diagnostics_caught_by_check(self):
+        # NaN compares unequal to everything; check_diagnostics must still fire.
+        art = build_valid()
+        art.diagnostics.branching_ratio = float("nan")
+        self.assertIn("diagnostics", _names(check(art)))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ compares against it.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Set
 
@@ -411,7 +412,10 @@ def check_diagnostics(art: Artifact) -> List[Finding]:
     for counter in DIAGNOSTIC_COUNTERS:
         actual, expected = getattr(art.diagnostics, counter), getattr(computed, counter)
         if isinstance(expected, float):
-            if abs(actual - expected) > 1e-6:
+            # NaN compares unequal to everything, so an explicit finiteness
+            # guard is required — abs(NaN - x) > eps is False.
+            numeric = isinstance(actual, (int, float)) and not isinstance(actual, bool)
+            if not numeric or not math.isfinite(actual) or abs(actual - expected) > 1e-6:
                 out.append(_f("diagnostics", f"{counter} is {actual}, expected {expected}"))
         elif actual != expected:
             out.append(_f("diagnostics", f"{counter} is {actual}, expected {expected}"))

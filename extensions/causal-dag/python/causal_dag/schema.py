@@ -12,6 +12,7 @@ value equals ``dumps`` of its ``loads`` round-trip, byte for byte.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -416,69 +417,109 @@ def dumps(artifact: Artifact) -> str:
                       allow_nan=False) + "\n"
 
 
-# Closed key sets (§5): parsing rejects unknown or missing keys at every level
-# instead of silently dropping or rewriting them on the next serialization.
-_TOP_KEYS = frozenset({"schema", "media_type", "generated_at", "session",
-                       "projection", "construction", "forest", "diagnostics"})
-_SESSION_KEYS = frozenset({"id", "event_range"})
-_RANGE_KEYS = frozenset({"start", "end", "complete"})
-_PROJECTION_KEYS = frozenset({"extension_id", "watermark_event_id", "basis", "degraded"})
-_CONSTRUCTION_KEYS = frozenset({"operation", "policy", "trigger",
-                                "predecessor_artifact_event_id",
-                                "predecessor_watermark_event_id",
-                                "observer_result_event_id"})
-_FOREST_KEYS = frozenset({"roots", "active_root", "nodes", "edges"})
-_NODE_KEYS = frozenset({"id", "root_id", "kind", "status", "title", "summary",
-                        "turns", "source_refs", "basis", "metadata"})
-_EDGE_KEYS = frozenset({"id", "from", "to", "class", "kind",
-                        "canonical_backbone", "source_refs", "basis", "metadata"})
-_TURN_KEYS = frozenset({"step_id", "event_ids"})
-_REF_KEYS = frozenset({"id", "kind", "event_id", "event_kind", "payload_pointer",
-                       "artifact", "blob"})
-_BASIS_KEYS = frozenset({"kind", "summary", "source_ref_ids"})
-_DIAG_KEYS = frozenset(DIAGNOSTIC_COUNTERS) | {"warnings"}
-_WARNING_KEYS = frozenset({"code", "severity", "message", "node_ids", "edge_ids",
-                           "source_ref_ids"})
+# Closed key sets AND value types (§5): parsing rejects unknown/missing keys and
+# mistyped values at every level instead of silently accepting and rewriting
+# them on the next serialization. Spec strings: str, bool, int, float (finite),
+# dict, list, list[str]; a trailing `?` allows null. `int` excludes bool.
+_SPEC_TOP = {"schema": "str", "media_type": "str", "generated_at": "str",
+             "session": "dict", "projection": "dict", "construction": "dict",
+             "forest": "dict", "diagnostics": "dict"}
+_SPEC_SESSION = {"id": "str", "event_range": "dict"}
+_SPEC_RANGE = {"start": "str?", "end": "str?", "complete": "bool"}
+_SPEC_PROJECTION = {"extension_id": "str", "watermark_event_id": "str?",
+                    "basis": "str", "degraded": "bool"}
+_SPEC_CONSTRUCTION = {"operation": "str", "policy": "str", "trigger": "str",
+                      "predecessor_artifact_event_id": "str?",
+                      "predecessor_watermark_event_id": "str?",
+                      "observer_result_event_id": "str?"}
+_SPEC_FOREST = {"roots": "list[str]", "active_root": "str?",
+                "nodes": "list", "edges": "list"}
+_SPEC_NODE = {"id": "str", "root_id": "str", "kind": "str", "status": "str",
+              "title": "str", "summary": "str", "turns": "list",
+              "source_refs": "list", "basis": "dict?", "metadata": "dict"}
+_SPEC_EDGE = {"id": "str", "from": "str", "to": "str", "class": "str",
+              "kind": "str", "canonical_backbone": "bool",
+              "source_refs": "list", "basis": "dict?", "metadata": "dict"}
+_SPEC_TURN = {"step_id": "int", "event_ids": "list[str]"}
+_SPEC_REF = {"id": "str", "kind": "str", "event_id": "str", "event_kind": "str",
+             "payload_pointer": "str?", "artifact": "dict?", "blob": "dict?"}
+_SPEC_BASIS = {"kind": "str", "summary": "str", "source_ref_ids": "list[str]"}
+_SPEC_WARNING = {"code": "str", "severity": "str", "message": "str",
+                 "node_ids": "list[str]", "edge_ids": "list[str]",
+                 "source_ref_ids": "list[str]"}
+_SPEC_DIAG = {**{c: "int" for c in DIAGNOSTIC_COUNTERS},
+              "branching_ratio": "float", "sequence_edge_ratio": "float",
+              "degraded_chronology": "bool", "projection_heavy_branching": "bool",
+              "warnings": "list"}
 
 
 def _reject_constant(name: str):
     raise ValueError(f"non-finite number {name} is not valid JSON")
 
 
-def _require_keys(d: Dict[str, Any], keys: frozenset, where: str) -> None:
-    if set(d) != keys:
-        unknown = sorted(set(d) - keys)
-        missing = sorted(keys - set(d))
+def _check_type(v: Any, kind: str, where: str) -> None:
+    base = kind.rstrip("?")
+    if v is None:
+        if kind.endswith("?"):
+            return
+        raise ValueError(f"{where}: null is not allowed")
+    if base == "str":
+        ok = isinstance(v, str)
+    elif base == "bool":
+        ok = isinstance(v, bool)
+    elif base == "int":
+        ok = isinstance(v, int) and not isinstance(v, bool)
+    elif base == "float":
+        ok = (isinstance(v, (int, float)) and not isinstance(v, bool)
+              and math.isfinite(v))
+    elif base == "dict":
+        ok = isinstance(v, dict)
+    elif base == "list":
+        ok = isinstance(v, list)
+    else:  # list[str]
+        ok = isinstance(v, list) and all(isinstance(x, str) for x in v)
+    if not ok:
+        raise ValueError(f"{where}: expected {base}, got {type(v).__name__}")
+
+
+def _check(d: Any, spec: Dict[str, str], where: str) -> None:
+    _check_type(d, "dict", where)
+    if set(d) != set(spec):
+        unknown = sorted(set(d) - set(spec))
+        missing = sorted(set(spec) - set(d))
         raise ValueError(f"{where}: unknown keys {unknown}, missing keys {missing}")
+    for key, kind in spec.items():
+        _check_type(d[key], kind, f"{where}.{key}")
 
 
-def _require_owner_keys(d: Dict[str, Any], where: str) -> None:
+def _check_owner(d: Dict[str, Any], where: str) -> None:
     for turn in d.get("turns", ()):
-        _require_keys(turn, _TURN_KEYS, f"{where} turn")
+        _check(turn, _SPEC_TURN, f"{where} turn")
     for ref in d["source_refs"]:
-        _require_keys(ref, _REF_KEYS, f"{where} source_ref {ref.get('id')}")
+        _check(ref, _SPEC_REF, f"{where} source_ref {ref.get('id')}")
     if d["basis"] is not None:
-        _require_keys(d["basis"], _BASIS_KEYS, f"{where} basis")
+        _check(d["basis"], _SPEC_BASIS, f"{where} basis")
 
 
 def loads(text: str) -> Artifact:
-    """Strict parse: closed key sets at every level, no NaN/Infinity, derived fields verified."""
+    """Strict parse: closed keys and value types at every level, no NaN/Infinity,
+    derived fields verified."""
     d = json.loads(text, parse_constant=_reject_constant)
-    _require_keys(d, _TOP_KEYS, "artifact")
-    _require_keys(d["session"], _SESSION_KEYS, "session")
-    _require_keys(d["session"]["event_range"], _RANGE_KEYS, "event_range")
-    _require_keys(d["projection"], _PROJECTION_KEYS, "projection")
-    _require_keys(d["construction"], _CONSTRUCTION_KEYS, "construction")
-    _require_keys(d["forest"], _FOREST_KEYS, "forest")
-    _require_keys(d["diagnostics"], _DIAG_KEYS, "diagnostics")
+    _check(d, _SPEC_TOP, "artifact")
+    _check(d["session"], _SPEC_SESSION, "session")
+    _check(d["session"]["event_range"], _SPEC_RANGE, "event_range")
+    _check(d["projection"], _SPEC_PROJECTION, "projection")
+    _check(d["construction"], _SPEC_CONSTRUCTION, "construction")
+    _check(d["forest"], _SPEC_FOREST, "forest")
+    _check(d["diagnostics"], _SPEC_DIAG, "diagnostics")
     for w in d["diagnostics"]["warnings"]:
-        _require_keys(w, _WARNING_KEYS, f"warning {w.get('code')}")
+        _check(w, _SPEC_WARNING, f"warning {w.get('code')}")
     for n in d["forest"]["nodes"]:
-        _require_keys(n, _NODE_KEYS, f"node {n.get('id')}")
-        _require_owner_keys(n, f"node {n.get('id')}")
+        _check(n, _SPEC_NODE, f"node {n.get('id')}")
+        _check_owner(n, f"node {n.get('id')}")
     for e in d["forest"]["edges"]:
-        _require_keys(e, _EDGE_KEYS, f"edge {e.get('id')}")
-        _require_owner_keys(e, f"edge {e.get('id')}")
+        _check(e, _SPEC_EDGE, f"edge {e.get('id')}")
+        _check_owner(e, f"edge {e.get('id')}")
     artifact = Artifact.from_dict(d)
     if d["forest"]["roots"] != artifact.roots():
         raise ValueError("serialized forest.roots does not match the derived roots")

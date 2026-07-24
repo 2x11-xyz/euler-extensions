@@ -107,6 +107,18 @@ class WalkImportTest(unittest.TestCase):
         self.assertEqual(art.generated_at, "2026-07-01T09:05:00Z")
         self.assertEqual(art.nodes[0].source_refs[0].event_id, "ev-z")
 
+        # A turn listing its events against stream order is normalized to it.
+        steps_reversed = [{"step_id": 0, "kind": "user",
+                           "event_ids": ["ev-a", "ev-z"]}]
+        art2 = import_walk(export, steps_reversed, events)
+        self.assertEqual(art2.nodes[0].turns[0].event_ids, ["ev-z", "ev-a"])
+
+        # Duplicate events in a turn are corrupt input, not a span.
+        steps_dup = [{"step_id": 0, "kind": "user",
+                      "event_ids": ["ev-z", "ev-z", "ev-a"]}]
+        with self.assertRaises(ValueError):
+            import_walk(export, steps_dup, events)
+
     def test_empty_export_produces_valid_empty_artifact(self):
         empty = {"schema": "causal-dag.walk-annotations.v2",
                  "session_id": "session-empty",

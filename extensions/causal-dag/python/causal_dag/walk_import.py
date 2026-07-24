@@ -202,9 +202,13 @@ def _turns_and_refs(node_id, step_ids, step_events, events, order):
     refs: List[SourceRef] = []
     for step_id in sorted(step_ids):
         event_ids = step_events.get(step_id, [])
+        if len(set(event_ids)) != len(event_ids):
+            raise ValueError(f"turn {step_id} lists duplicate events")
+        # v5 turns are ordered event-id spans: normalize to stream order.
+        event_ids = sorted(event_ids, key=order.__getitem__)
         turns.append(Turn(step_id, event_ids))
         if event_ids:
-            first = min(event_ids, key=order.__getitem__)  # stream order, not id order
+            first = event_ids[0]
             refs.append(SourceRef(
                 id=f"{node_id}-t{step_id}",
                 kind="event",
