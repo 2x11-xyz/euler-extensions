@@ -56,7 +56,7 @@ from typing import Any, Dict, List, Optional
 
 from .invariants import recompute_diagnostics, warning_sort_key
 from .schema import (
-    Artifact, Basis, Construction, Edge, EventRange, Node, Projection,
+    Artifact, Basis, Construction, Edge, EPOCH, EventRange, Node, Projection,
     Session, SourceRef, Turn, Warning,
 )
 
@@ -94,10 +94,6 @@ LOSSY_CELLS = frozenset({
     ("synthesis", "dead_end"), ("question", "dead_end"),
 })
 
-# Empty event stream sentinel, inherited from v3.
-EPOCH = "1970-01-01T00:00:00Z"
-
-
 def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
                 events: Dict[str, Dict[str, str]]) -> Artifact:
     """Project a walk-annotations.v2 export + its session steps into a v5 artifact.
@@ -111,23 +107,40 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     ``generated_at`` equals the range-end event's timestamp (inherited v3 rule),
     not the export's wall-clock time.
     """
+    if export.get("schema") != "causal-dag.walk-annotations.v2":
+        raise ValueError(f"not a walk-annotations.v2 export "
+                         f"(schema: {export.get('schema')!r})")
     for key in ("session_id", "nodes", "node_steps", "edges"):
         if key not in export:
             raise ValueError(f"export missing {key!r}")
 
     order = {eid: i for i, eid in enumerate(events)}
-    step_events = {s["step_id"]: list(s.get("event_ids", [])) for s in steps}
+    step_events: Dict[int, List[str]] = {}
+    for s in steps:
+        if s["step_id"] in step_events:
+            raise ValueError(f"steps list repeats step_id {s['step_id']}")
+        step_events[s["step_id"]] = list(s.get("event_ids", []))
     for step_id, evs in step_events.items():
         for ev in evs:
             if ev not in order:
                 raise ValueError(f"no event metadata known for event {ev} (step {step_id})")
 
+    known_nodes = {n.get("node_id") for n in export["nodes"]}
+
     owned_steps: Dict[str, List[int]] = {}
+    assigned: Dict[int, str] = {}
     for entry in export["node_steps"]:
+        if entry["node_id"] not in known_nodes:
+            raise ValueError(f"node_steps assigns step {entry['step_id']} to "
+                             f"unknown node {entry['node_id']!r}")
         if entry["step_id"] not in step_events:
             raise ValueError(
                 f"node_steps references step {entry['step_id']} absent from the "
                 f"session's steps — a turn cannot own events that do not exist")
+        if entry["step_id"] in assigned:
+            raise ValueError(f"step {entry['step_id']} assigned to both "
+                             f"{assigned[entry['step_id']]} and {entry['node_id']} (R2)")
+        assigned[entry["step_id"]] = entry["node_id"]
         owned_steps.setdefault(entry["node_id"], []).append(entry["step_id"])
 
     old_kind = {n["node_id"]: n["kind"] for n in export["nodes"]}
@@ -146,10 +159,14 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     anchor: Dict[str, SourceRef] = {}
     nodes: List[Node] = []
     lossy: Dict[tuple, List[str]] = {}
+    seen_nids: set = set()
     for raw in export["nodes"]:
         nid = raw.get("node_id")
         if not nid:
             raise ValueError("export node without a node_id")
+        if nid in seen_nids:
+            raise ValueError(f"export repeats node_id {nid!r}")
+        seen_nids.add(nid)
         if raw.get("kind") not in KIND_MAP:
             raise ValueError(f"node {nid}: unknown kind {raw.get('kind')!r}")
         kind = KIND_MAP[raw["kind"]]

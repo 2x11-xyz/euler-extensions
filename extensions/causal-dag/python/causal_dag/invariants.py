@@ -24,7 +24,7 @@ from .schema import (
     Artifact, Diagnostics, EDGE_KINDS_BY_CLASS, GENEALOGY_KINDS, KINDS,
     STATUS_BY_KIND, TERMINAL_STATUSES, BASIS_KINDS, DIAGNOSTIC_COUNTERS,
     CONSTRUCTION_OPERATIONS, CONSTRUCTION_POLICIES, CONSTRUCTION_TRIGGERS,
-    MEDIA_TYPE, METADATA_SHADOW_KEYS, SCHEMA, _finite,
+    EPOCH, MEDIA_TYPE, METADATA_SHADOW_KEYS, SCHEMA, _finite,
 )
 
 
@@ -194,6 +194,10 @@ def check_source_ref_shape(art: Artifact) -> List[Finding]:
                 out.append(_f("source_ref_shape", f"artifact ref {r.id} needs artifact object"))
             elif r.kind == "blob" and (r.blob is None or r.artifact is not None):
                 out.append(_f("source_ref_shape", f"blob ref {r.id} needs blob object"))
+            elif r.kind == "blob" and not (isinstance(r.blob.get("name"), str)
+                                           and r.blob.get("name")):
+                out.append(_f("source_ref_shape",
+                              f"blob ref {r.id} needs a non-empty name"))
             elif r.kind not in ("event", "artifact", "blob"):
                 out.append(_f("source_ref_shape", f"unknown source_ref kind {r.kind!r}"))
             if r.payload_pointer is not None and r.payload_pointer and not r.payload_pointer.startswith("/"):
@@ -325,14 +329,38 @@ def check_backbone_class(art: Artifact) -> List[Finding]:
     return out
 
 
-def check_degraded_marking(art: Artifact) -> List[Finding]:
-    """Degradation is explicit, never implied (§1.4, v3): sequence edges and an
-    incomplete range require projection.degraded; the range nulls pair."""
+def check_range_honesty(art: Artifact) -> List[Finding]:
+    """The event range tells the truth about the evidence (scientific-record
+    integrity): nulls pair; a null range means an empty stream, so nothing may
+    own turns, the watermark is null, and generated_at is the epoch sentinel;
+    a bounded range carries a watermark."""
     out: List[Finding] = []
     rng = art.session.event_range
     if (rng.start is None) != (rng.end is None):
-        out.append(_f("degraded_marking", "event_range start/end must both be "
-                                          "null or both be event ids"))
+        out.append(_f("range_honesty", "event_range start/end must both be "
+                                       "null or both be event ids"))
+        return out
+    if rng.start is None:
+        if art.nodes:
+            out.append(_f("range_honesty",
+                          "null event_range but the artifact owns nodes/turns"))
+        if art.projection.watermark_event_id is not None:
+            out.append(_f("range_honesty",
+                          "null event_range requires a null watermark"))
+        if art.generated_at != EPOCH:
+            out.append(_f("range_honesty",
+                          f"null event_range requires generated_at {EPOCH}"))
+    elif art.projection.watermark_event_id is None:
+        out.append(_f("range_honesty",
+                      "bounded event_range requires a watermark"))
+    return out
+
+
+def check_degraded_marking(art: Artifact) -> List[Finding]:
+    """Degradation is explicit, never implied (§1.4): sequence edges and an
+    incomplete range require projection.degraded."""
+    out: List[Finding] = []
+    rng = art.session.event_range
     if not rng.complete and not art.projection.degraded:
         out.append(_f("degraded_marking",
                       "incomplete event_range requires projection.degraded"))
@@ -525,6 +553,7 @@ CHECKS: List[Callable[[Artifact], List[Finding]]] = [
     check_cross_root,
     check_backbone_class,
     check_acyclicity,
+    check_range_honesty,
     check_degraded_marking,
     check_basis_required,
     check_metadata_shadow,

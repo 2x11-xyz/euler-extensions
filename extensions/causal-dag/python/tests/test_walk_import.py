@@ -116,6 +116,32 @@ class WalkImportTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_walk(export, STEPS, EVENTS)
 
+    def test_wrong_schema_id_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        export["schema"] = "causal-dag.walk-annotations.v1"
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
+    def test_assignment_to_unknown_node_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        export["node_steps"].append({"node_id": "n-ghost", "step_id": 2})
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
+    def test_step_assigned_twice_is_an_error(self):
+        import copy
+        export = copy.deepcopy(EXPORT)
+        export["node_steps"].append({"node_id": "n-wrap", "step_id": 1})
+        with self.assertRaises(ValueError):
+            import_walk(export, STEPS, EVENTS)
+
+    def test_repeated_step_in_steps_list_is_an_error(self):
+        steps = STEPS + [{"step_id": 1, "kind": "round", "event_ids": ["ev-c"]}]
+        with self.assertRaises(ValueError):
+            import_walk(EXPORT, steps, EVENTS)
+
     def test_range_follows_stream_order_not_id_order(self):
         # Euler event ids are non-monotonic ULIDs: id sort order can invert
         # stream order. The range must follow the stream.

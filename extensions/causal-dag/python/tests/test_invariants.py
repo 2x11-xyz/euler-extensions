@@ -85,6 +85,9 @@ FAIL_CASES = [
     ("canonical_ordering", lambda a: a.nodes.reverse()),
     ("vocabulary", lambda a: setattr(a.nodes[1], "status", "proven")),
     ("source_ref_shape", lambda a: setattr(a.nodes[1].source_refs[0], "artifact", {"x": 1})),
+    ("source_ref_shape",
+     lambda a: (setattr(a.nodes[1].source_refs[0], "kind", "blob"),
+                setattr(a.nodes[1].source_refs[0], "blob", {}))),
     ("edge_endpoints", lambda a: setattr(a.edges[0], "to_node", "ghost")),
     ("backbone_parent_count",
      lambda a: a.edges.append(_edge("edge-7", "node-a-root", "node-b", "structural", "fork", True, "ev-0"))),
@@ -116,8 +119,12 @@ FAIL_CASES = [
      lambda a: setattr(a.nodes[1], "turns", [Turn(9, ["ev-9"]), Turn(8, ["ev-8"])])),
     ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(1, ["ev-1b"]))),
     ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(7, ["ev-1"]))),
-    ("degraded_marking",
+    ("range_honesty",
      lambda a: setattr(a.session, "event_range", EventRange(None, "ev-5", True))),
+    ("range_honesty",
+     lambda a: setattr(a.session, "event_range", EventRange(None, None, True))),
+    ("range_honesty",
+     lambda a: setattr(a.projection, "watermark_event_id", None)),
     ("degraded_marking",
      lambda a: setattr(a.session, "event_range", EventRange("ev-0", "ev-5", False))),
     ("source_ref_shape",
@@ -332,6 +339,23 @@ class StrictLoadsTest(unittest.TestCase):
         art2.diagnostics.warnings = [W("x", "info", "m",
                                        node_ids=["node-b", "node-a-root"])]
         self.assertIn("canonical_ordering", _names(check(art2)))
+
+    def test_dumps_rejects_what_loads_rejects(self):
+        # Shared validation: a mistyped field or over-deep metadata fails on
+        # write exactly as it would on read.
+        art = build_valid()
+        art.nodes[0].title = 42
+        with self.assertRaises(ValueError):
+            dumps(art)
+        art2 = build_valid()
+        deep = {}
+        cursor = deep
+        for _ in range(40):
+            cursor["d"] = {}
+            cursor = cursor["d"]
+        art2.nodes[0].metadata = deep
+        with self.assertRaises(ValueError):
+            dumps(art2)
 
     def test_serializer_preserves_reported_violations(self):
         # dumps must never silently repair what check reports: a duplicated

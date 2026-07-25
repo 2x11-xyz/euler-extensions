@@ -19,6 +19,9 @@ from typing import Any, Dict, List, Optional
 SCHEMA = "euler.causal_dag.v5"
 MEDIA_TYPE = "application/vnd.euler.causal-dag.v5+json"
 
+# generated_at sentinel for an empty event stream.
+EPOCH = "1970-01-01T00:00:00Z"
+
 # §2.1 kinds. Rootness is topology, not a kind — there is no `root` kind.
 KINDS = ("question", "claim", "investigation", "synthesis")
 
@@ -69,8 +72,8 @@ def _canon(value: Any, _depth: int = 0) -> Any:
     Depth-capped: unbounded nesting would overflow the stack during dumps, so
     absurd inputs fail loudly here instead.
     """
-    if _depth > 64:
-        raise ValueError("metadata nesting deeper than 64 levels")
+    if _depth > 32:  # same cap as _check_opaque: dumps and loads agree
+        raise ValueError("metadata nesting deeper than 32 levels")
     if isinstance(value, dict):
         return {k: _canon(value[k], _depth + 1) for k in sorted(value)}
     if isinstance(value, list):
@@ -414,11 +417,13 @@ class Artifact:
 def dumps(artifact: Artifact) -> str:
     """Canonical, deterministic, strict JSON text (trailing newline included).
 
-    ``allow_nan=False``: non-finite numbers have no JSON representation and
-    would silently break canonical byte equality — refuse them.
+    Runs the same shape validation as ``loads`` before writing: a scientific
+    record must never emit what it cannot re-read. ``allow_nan=False`` backs
+    that up at the JSON layer.
     """
-    return json.dumps(artifact.to_dict(), indent=2, ensure_ascii=False,
-                      allow_nan=False) + "\n"
+    d = artifact.to_dict()
+    _validate_tree(d)
+    return json.dumps(d, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
 
 
 # Closed key sets AND value types (§5): parsing rejects unknown/missing keys and
@@ -546,10 +551,9 @@ def _check_owner(d: Dict[str, Any], where: str) -> None:
     _check_opaque(d["metadata"], f"{where}.metadata")
 
 
-def loads(text: str) -> Artifact:
-    """Strict parse: closed keys and value types at every level, no NaN/Infinity,
-    derived fields verified. Rejection is always a ValueError."""
-    d = json.loads(text, parse_constant=_reject_constant)
+def _validate_tree(d: Dict[str, Any]) -> None:
+    """The one shape gate, shared by loads AND dumps: what cannot be read back
+    is never written out, and vice versa."""
     _check(d, _SPEC_TOP, "artifact")
     _check(d["session"], _SPEC_SESSION, "session")
     _check(d["session"]["event_range"], _SPEC_RANGE, "event_range")
@@ -565,6 +569,13 @@ def loads(text: str) -> Artifact:
     for i, e in enumerate(d["forest"]["edges"]):
         _check(e, _SPEC_EDGE, f"forest.edges[{i}]")
         _check_owner(e, f"forest.edges[{i}]")
+
+
+def loads(text: str) -> Artifact:
+    """Strict parse: closed keys and value types at every level, no NaN/Infinity,
+    derived fields verified. Rejection is always a ValueError."""
+    d = json.loads(text, parse_constant=_reject_constant)
+    _validate_tree(d)
     artifact = Artifact.from_dict(d)
     if d["forest"]["roots"] != artifact.roots():
         raise ValueError("serialized forest.roots does not match the derived roots")

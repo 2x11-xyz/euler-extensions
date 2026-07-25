@@ -172,24 +172,33 @@ active_root, nodes, edges}`, `diagnostics` — with:
 - Lineage rules (predecessor chaining, immutable revisions, active
   pointer) carry over from v3 unchanged.
 
-## 6. Compatibility
+## 6. Compatibility and conformance (ruling 12)
 
-- **v3 projection (viewer lane):** a lossy but faithful down-conversion for
-  the existing HTML viewer family: `question`→`root`/`checkpoint` by
-  position, `investigation`→`attempt`, verdicts map onto the eight-status
-  palette (`refuted`→`dead_end` glyphed as refutation, `supported`→
-  `success`, `proven`→`verified`, `answered`→`success`). The down-converter
-  ships with the extension so the euler-8dg viewer renders v5 sessions
-  until a v5-native viewer exists.
+v5 owes nothing to v3 parity. The implementation is measured against this
+spec, the walk rulings (DECISIONS.md), and the gold-standard walk data —
+never against the archived v3 suite, which is a source of ideas adopted
+deliberately, one by one, each justified by a v5 principle (provenance
+grounding, honest degradation, deterministic serialization,
+scientific-record integrity). The adopted set and the reasons live in
+`CONFORMANCE.md`, which is the review standard.
+
+- **Viewer:** the archived HTML viewers (2D top-down, indented spine, 3D
+  and 3.5D constellations, recoverable from euler git history) are adapted
+  to render v5 natively — the v5 kinds and per-kind statuses get their own
+  visual identity. There is no v3 down-conversion lane.
+- **Canonical serialization is v5-defined:** deterministic byte-identical
+  output with closed key sets, id-sorted collections, canonically ordered
+  warnings (code, severity rank, message, id tuples — Python tuple order),
+  and shared validation between reading and writing. v3's encodings are
+  not authoritative.
 - **Hints:** the observer contract becomes `euler.causal_dag.hints.v3`,
   identical in shape to hints.v2 with the v5 kind/status vocabulary and
   `turns[]` on nodes. The backbone rule, source_ref shape, basis kinds, and
-  occurrence anchors carry over unchanged.
-- The v3 fixtures and conformance suite remain in this package as prior
-  art; the v5 acceptance gate is (a) the invariant checker in §4 and
-  (b) round-tripping the walk's gold graph: projecting the baseline
-  session's annotation export must satisfy every invariant and reproduce
-  the human graph's segmentation and backbone shape.
+  occurrence anchors carry over deliberately (provenance grounding).
+- **Acceptance gate:** (a) the invariant checker returns no findings and
+  (b) the walk's gold graph round-trips: projecting the baseline session's
+  annotation export must satisfy every invariant and reproduce the human
+  graph's segmentation and backbone shape.
 
 ## 7. Open decision points for review
 
@@ -201,6 +210,7 @@ active_root, nodes, edges}`, `diagnostics` — with:
    arguably should accept non-repair children once unblocked — proposal:
    `blocked` is terminal *while current*, and unblocking is a status
    change back to `open`).
-4. Whether the v3 down-converter is a launch requirement or a follow-up.
+4. ~~Whether the v3 down-converter is a launch requirement or a follow-up.~~
+   Resolved by ruling 12: no down-converter — the viewers adapt to v5.
 5. Schema id: `v5` continues the lineage past v4; alternative is a fresh
    identifier line if v5 is considered a different artifact family.
