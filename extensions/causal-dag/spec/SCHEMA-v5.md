@@ -27,9 +27,16 @@ and lineage machinery (proven infrastructure) and adopts v4's central insight
    happened) rides in the `{repair, pivot, refutation}` edge family.
    Views select a lens; the artifact stores both. A generative edge is
    drawn only where content shows dependence — never from adjacency.
-4. **Honest degradation.** When semantic interpretation is unavailable, the
-   projection degrades explicitly (as v3 did): degraded output is marked,
-   never silently presented as semantic.
+4. **Honest degradation.** Loss of fidelity is always declared, on the axis
+   where it occurs. *Structural* degradation (chronology fallback, an
+   incomplete window) is declared via `projection.degraded`, which also
+   relaxes the citation rules below. *Vocabulary* loss (a status mapped
+   lossily during import) is declared via `lossy_status_mapping` warnings
+   naming the affected nodes — it does not set `projection.degraded`,
+   because the graph's structure and citations are intact and relaxing
+   structural rules for a vocabulary approximation would make the artifact
+   *less* honest. Both channels are explicit declarations; neither loss is
+   ever silent.
 5. **Statuses live.** Nodes are born `open` and change status by evidence,
    not birth (R3). A projection whose nodes are born terminal is failing
    (the old system's frozen-status pathology).
@@ -164,7 +171,12 @@ active_root, nodes, edges}`, `diagnostics` — with:
   anchored on the from-node's evidence — which is what makes repair/
   pivot/refutation edges share evidence with the failure they spring
   from by construction (§4.2, §4.6). Observer-asserted edges must cite
-  their evidence explicitly.
+  their evidence explicitly. **Degraded exception:** in a projection
+  marked `degraded`, nodes and edges whose basis is `inferred` or
+  `chronology` may carry no source_refs — the chronology fallback asserts
+  ordering, not causality, and pretending citations it does not have
+  would be dishonest. A degraded projector should still cite where it
+  can (its nodes own turns whose events are known).
 - Diagnostics: v3's recomputed counter set carries over where meaningful;
   counters referring to removed concepts (`root_count` by kind) re-derive
   from topology. Two additions: `refuted_claim_count` and

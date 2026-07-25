@@ -13,7 +13,11 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from causal_dag import check, dumps, import_walk, loads  # noqa: E402
+from causal_dag import (  # noqa: E402
+    check, dumps, import_walk, loads, structural_projection,
+)
+
+MANIFEST = pathlib.Path(__file__).resolve().parent / "gold_structure.json"
 
 TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
 EXPORT = TOOL / "exports" / "01KXBZY130DSAMPT8C72558Z4J-gold-20260724.json"
@@ -55,6 +59,13 @@ class GoldRoundTripTest(unittest.TestCase):
 
     def test_conversion_passes_all_invariants(self):
         self.assertEqual(check(self.artifact), [])
+
+    def test_structure_matches_the_committed_manifest(self):
+        # SCHEMA-v5 §6: the gate verifies segmentation and backbone SHAPE, not
+        # counts. Any change to turn ownership, edge endpoints, kinds, statuses,
+        # or backbone flags diverges from tests/gold_structure.json.
+        manifest = json.loads(MANIFEST.read_text())
+        self.assertEqual(structural_projection(self.artifact), manifest)
 
     def test_counts_match_export(self):
         self.assertEqual(len(self.artifact.nodes), len(self.export["nodes"]))

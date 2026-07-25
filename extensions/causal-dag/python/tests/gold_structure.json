@@ -1,0 +1,1116 @@
+{
+ "edges": [
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-agnajo13rpwz5cbk2ee",
+   "kind": "continuation",
+   "to": "n-fpplwn10xrcdty0he8y"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-propy4ev0cexyced",
+   "id": "e-prop0z8oimtjh2nf",
+   "kind": "evidence",
+   "to": "n-prop7th8b3a3efhd"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-prop10gtlhun44mz",
+   "kind": "refinement",
+   "to": "n-propy4ev0cexyced"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-129hv7awjcawnqpymxr",
+   "id": "e-prop127ydqp4rs",
+   "kind": "pivot",
+   "to": "n-apr7wo84tmof1f90vfx"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-apr7wo84tmof1f90vfx",
+   "id": "e-prop13fnrgh5q1",
+   "kind": "repair",
+   "to": "n-1h9vbz7d7j159vyvy0"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-1h9vbz7d7j159vyvy0",
+   "id": "e-prop14gpzmzkns",
+   "kind": "refutation",
+   "to": "n-apr7wo84tmof1f90vfx"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-prop1loz2aq27",
+   "kind": "fork",
+   "to": "n-1xzgzh3d3i7jb1wpuvs4"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-propz132u6gaiw6h",
+   "id": "e-prop2i6l2b9d57s7",
+   "kind": "integration",
+   "to": "n-prop8ocmhamvqurc"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-fpplwn10xrcdty0he8y",
+   "id": "e-prop2suv30qwt",
+   "kind": "pivot",
+   "to": "n-1xzgzh3d3i7jb1wpuvs4"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-prop32gxww0u49",
+   "kind": "fork",
+   "to": "n-apr7wo84tmof1f90vfx"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-1xzgzh3d3i7jb1wpuvs4",
+   "id": "e-prop35ah2p6bc",
+   "kind": "repair",
+   "to": "n-1uak9hql1y5ik18rwh78"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-prop3oc43qsz9g",
+   "kind": "verification",
+   "to": "n-propagrvzlq35eap"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-prop7g6an8hvjdh6",
+   "id": "e-prop4mz4k2njrv45",
+   "kind": "supersedes",
+   "to": "n-prop1znsgr1p1pk2"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-propiob39q0m8at9",
+   "id": "e-prop4nt6dgp0bmsg",
+   "kind": "related",
+   "to": "n-1h9vbz7d7j159vyvy0"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-1uak9hql1y5ik18rwh78",
+   "id": "e-prop4xjizj9qs",
+   "kind": "refinement",
+   "to": "n-2nfdicxy6g68yr0dxu"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-2nfdicxy6g68yr0dxu",
+   "id": "e-prop562ss280u",
+   "kind": "refinement",
+   "to": "n-10nnub961lloc10cr59k"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop7x7zadg5medu",
+   "id": "e-prop5eb64cyoskzm",
+   "kind": "repair",
+   "to": "n-propb1sze4ruvo1k"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-10nnub961lloc10cr59k",
+   "id": "e-prop62hue7k1j",
+   "kind": "supersedes",
+   "to": "n-2nfdicxy6g68yr0dxu"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-10nnub961lloc10cr59k",
+   "id": "e-prop7exg0mzih",
+   "kind": "integration",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-1uak9hql1y5ik18rwh78",
+   "id": "e-prop82oeolngn",
+   "kind": "evidence",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-1h9vbz7d7j159vyvy0",
+   "id": "e-prop8gfsl6454dho",
+   "kind": "evidence",
+   "to": "n-sao1is14t7bys1lt5ehi"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop1znsgr1p1pk2",
+   "id": "e-prop98hw1izf8hlo",
+   "kind": "repair",
+   "to": "n-prop7g6an8hvjdh6"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-2nfdicxy6g68yr0dxu",
+   "id": "e-prop9kh70rtfc",
+   "kind": "evidence",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propabew1ixyk0",
+   "kind": "verification",
+   "to": "n-prope6fabz41lb9o"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-propcj3guce3i3",
+   "kind": "fork",
+   "to": "n-propiob39q0m8at9"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-prop7th8b3a3efhd",
+   "id": "e-propedylg6ikhcto",
+   "kind": "artifact_use",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-prophhgs3nzh9h",
+   "kind": "verification",
+   "to": "n-propi89kwty45uxx"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-propl49vcsnzale5",
+   "id": "e-propj69d6qwt9yw3",
+   "kind": "fork",
+   "to": "n-proprowg5f4sy6ml"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-1h9vbz7d7j159vyvy0",
+   "id": "e-propk912qtssb44d",
+   "kind": "repair",
+   "to": "n-prop6o8egb92i5dk"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-proplq5h1zs734",
+   "kind": "fork",
+   "to": "n-129hv7awjcawnqpymxr"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propnl5v9vaoxp",
+   "kind": "artifact_use",
+   "to": "n-prop7g6an8hvjdh6"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-129hv7awjcawnqpymxr",
+   "id": "e-propp280cckw47",
+   "kind": "artifact_use",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-propi89kwty45uxx",
+   "id": "e-propp30kts3otqst",
+   "kind": "evidence",
+   "to": "n-fpplwn10xrcdty0he8y"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-proppp20xtus7j",
+   "kind": "verification",
+   "to": "n-prop0g9ae554frfs"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propqergsszs5l",
+   "kind": "verification",
+   "to": "n-propnomrtqtyt0nj"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-propwnhmn1p46b32",
+   "id": "e-propqqwyfjqga5d6",
+   "kind": "repair",
+   "to": "n-propl49vcsnzale5"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-propr5b9m2vlky",
+   "kind": "fork",
+   "to": "n-prop7x7zadg5medu"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propsaj9p9joez",
+   "kind": "integration",
+   "to": "n-prop7th8b3a3efhd"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-raa1a81chsnrw5toen5",
+   "id": "e-propsw2s7wsynw",
+   "kind": "fork",
+   "to": "n-propz132u6gaiw6h"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propui1id0uybmlk",
+   "kind": "artifact_use",
+   "to": "n-prop2k5utrn565uz"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop6o8egb92i5dk",
+   "id": "e-propuzgc3tm3bqh7",
+   "kind": "repair",
+   "to": "n-propwnhmn1p46b32"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-propl49vcsnzale5",
+   "id": "e-propvjb0er67mpd3",
+   "kind": "refinement",
+   "to": "n-prop1znsgr1p1pk2"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-propnomrtqtyt0nj",
+   "id": "e-propwew76ei8wdk1",
+   "kind": "evidence",
+   "to": "n-prop7th8b3a3efhd"
+  },
+  {
+   "backbone": false,
+   "class": "annotation",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propxnmtxydxg5fr",
+   "kind": "artifact_use",
+   "to": "n-1e9iiae1kgj5ehyuy4xm"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-prop8ocmhamvqurc",
+   "id": "e-propz41z4dxfm3",
+   "kind": "verification",
+   "to": "n-prop4kgtp0u6e4bh"
+  },
+  {
+   "backbone": true,
+   "class": "structural",
+   "from": "n-proprowg5f4sy6ml",
+   "id": "e-propzelzvnsz6qz1",
+   "kind": "repair",
+   "to": "n-prop2k5utrn565uz"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "n-10nnub961lloc10cr59k",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWDBYY4RXDPAMA1VWF6SM6",
+      "01KXBWDC0FQJGMFCN325G3A122",
+      "01KXBWDC1M6CBTXCDPJRN6R0FX"
+     ],
+     "step_id": 8
+    }
+   ]
+  },
+  {
+   "id": "n-129hv7awjcawnqpymxr",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWP8J9DSKHP1RXB6JSHV6T",
+      "01KXBWP8JFER7JJT7C4WPCFFV7",
+      "01KXBWP8QA3FYA95WN5YZF6RHZ"
+     ],
+     "step_id": 12
+    }
+   ]
+  },
+  {
+   "id": "n-1e9iiae1kgj5ehyuy4xm",
+   "kind": "synthesis",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWKMJTW0PAAZC00KQWND2M",
+      "01KXBWKMJZ4TC3NEHQGH0AVBTN",
+      "01KXBWKMK6EAAVZYWGHDYE5PN7",
+      "01KXBWKMKK3FNPJ74F2AW787KQ",
+      "01KXBWKMKPKEH7TTKS8FNK1CV7"
+     ],
+     "step_id": 11
+    }
+   ]
+  },
+  {
+   "id": "n-1h9vbz7d7j159vyvy0",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWPSK5R7174PMDFKW27RRF",
+      "01KXBWPSK9G6DKN8FAN7GAXJR7",
+      "01KXBWTETMG95B6R022FCD8G6H"
+     ],
+     "step_id": 14
+    }
+   ]
+  },
+  {
+   "id": "n-1uak9hql1y5ik18rwh78",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWD3BQ8NYX49CNCNAACGVY",
+      "01KXBWD3BWYGGEG1ZSY4K6AS3N",
+      "01KXBWD3DYZGR226TBZNH3WG78"
+     ],
+     "step_id": 6
+    }
+   ]
+  },
+  {
+   "id": "n-1xzgzh3d3i7jb1wpuvs4",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWCZQVQFCW5RJPRZCAG7P8",
+      "01KXBWCZR8E0PH8SF07T1K1070",
+      "01KXBWCZTJDB6N4X35BEF8KT5Z"
+     ],
+     "step_id": 5
+    }
+   ]
+  },
+  {
+   "id": "n-2nfdicxy6g68yr0dxu",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWD7HSHCDTGFJ2E2ECZS21",
+      "01KXBWD7HW5FWS3BDN420D6MW0",
+      "01KXBWD7KTYX4ESC5NGEBGDWA7"
+     ],
+     "step_id": 7
+    }
+   ]
+  },
+  {
+   "id": "n-apr7wo84tmof1f90vfx",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWPFQFCXTPSAA7G6CA92F3",
+      "01KXBWPFQJBMP5PF6ACGYVM9CK",
+      "01KXBWPFRZZ8H53K4E32AW93JE"
+     ],
+     "step_id": 13
+    }
+   ]
+  },
+  {
+   "id": "n-fpplwn10xrcdty0he8y",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBW7ARPDSVWDH41Z06NYHHY",
+      "01KXBW7ARVX8QSHM24XRG0XTST",
+      "01KXBW7ASVNNM0295X3EGPF69X"
+     ],
+     "step_id": 2
+    },
+    {
+     "event_ids": [
+      "01KXBW7DZV0HBQJH2JFK74RKDY",
+      "01KXBW7DZZNTVAGAG3DAVHXK5Q",
+      "01KXBW7E11JZZ6V48EH1CXKTJY",
+      "01KXBW7E15CQ5Q7HDSK6WWPMX4",
+      "01KXBW7E31KGH5J01SQQZ5R6ZR"
+     ],
+     "step_id": 3
+    },
+    {
+     "event_ids": [
+      "01KXBWARW7PBQGRKP5YFM2VHEW",
+      "01KXBWARWHK968EKMNS2V6V3BQ",
+      "01KXBWARWQQ7GDKA2QWDXHB6AB",
+      "01KXBWARWZHNVRAR3DZ2E1EHD8",
+      "01KXBWARX2JE6NY9Z5AM6MWMJS"
+     ],
+     "step_id": 4
+    }
+   ]
+  },
+  {
+   "id": "n-prop0g9ae554frfs",
+   "kind": "investigation",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBZKNSPKE7VHY8PNY9MD76C",
+      "01KXBZKNSTRKMA7T3XT5T9WXVC",
+      "01KXBZKNZS748JV8VNYKQ0C2Z2"
+     ],
+     "step_id": 75
+    },
+    {
+     "event_ids": [
+      "01KXBZKZQ8045586NHX2QK01K9",
+      "01KXBZKZQCXQ16DAKNDR932XP0",
+      "01KXBZKZQK7CXX2ESW357ZM8A6",
+      "01KXBZKZR6DGEM1FPHKFS5JR7K",
+      "01KXBZKZR8SCNQCMR2J9VCZEH5"
+     ],
+     "step_id": 77
+    },
+    {
+     "event_ids": [
+      "01KXBZM1SHV2W5SVYVQ1Q16BME",
+      "01KXBZM1SMTSEBXKCTB4D0W4C6",
+      "01KXBZM1ST0WVE9GBYH5007BKV",
+      "01KXBZM1TJMYKB1F814CCM349C",
+      "01KXBZM1TN6X57QCTJXV08M9AG"
+     ],
+     "step_id": 78
+    }
+   ]
+  },
+  {
+   "id": "n-prop1znsgr1p1pk2",
+   "kind": "investigation",
+   "status": "superseded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXN19MRZS40SPFDK8M0YZP",
+      "01KXBXN19REYM7E5MWJ21FJJNV",
+      "01KXBXN1GSP1CGDHB62NDGKCQ0"
+     ],
+     "step_id": 26
+    }
+   ]
+  },
+  {
+   "id": "n-prop2k5utrn565uz",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXMTGDY7P0JBC01VJPWGSJ",
+      "01KXBXMTGHMRZG9CR9NPSQQ0GB",
+      "01KXBXMTSKV3M36WNHT95SEBJ1"
+     ],
+     "step_id": 25
+    }
+   ]
+  },
+  {
+   "id": "n-prop4kgtp0u6e4bh",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYYQF6CBZ2QCVZAFNTZ5JF",
+      "01KXBYYQFDCBS48TEM981ASPFR",
+      "01KXBYYV6Y73QHKDTB97ANKJ0Y"
+     ],
+     "step_id": 53
+    }
+   ]
+  },
+  {
+   "id": "n-prop6o8egb92i5dk",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWYDXZW9VZBC30V14ZKF08",
+      "01KXBWYDY4S0JYWWQHGMS21SD3",
+      "01KXBX236CX67CN4VJEB535BH4"
+     ],
+     "step_id": 16
+    },
+    {
+     "event_ids": [
+      "01KXBX4JWF8RQJ3H7MAKSJR9ZN",
+      "01KXBX4JWMEXZHGPXNP02PNVPK",
+      "01KXBX4JWT740QN52DY398S8HM",
+      "01KXBX4JXECKC7S3MF8NHETMZA",
+      "01KXBX4JXJWC9Z361YB0XCN8EG"
+     ],
+     "step_id": 17
+    }
+   ]
+  },
+  {
+   "id": "n-prop7g6an8hvjdh6",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXNKPZDJKEB0A94N82XXCD",
+      "01KXBXNKQ40Q9J4EZVVR6HQRMJ",
+      "01KXBXNKRF232SJ5YWMAE0CBV3"
+     ],
+     "step_id": 28
+    },
+    {
+     "event_ids": [
+      "01KXBXWWAA7DAZ3V67BE3AEARC",
+      "01KXBXWWAFG0WV2GXKPP41TS6R",
+      "01KXBXWWARS3HH196TB5H1PYGM",
+      "01KXBXWWBMJQBTZ98GVP40P5AH",
+      "01KXBXWWBQCZETHDT6XWR8MYV1"
+     ],
+     "step_id": 31
+    }
+   ]
+  },
+  {
+   "id": "n-prop7th8b3a3efhd",
+   "kind": "synthesis",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBZ8PDMFMH8QPXHBMPV7QAX",
+      "01KXBZ8PDSF7BXTBRJJ3V2BVQC",
+      "01KXBZ8PE7XJ2EK4BQ3AABFZT8",
+      "01KXBZ8PFFHMW4K4PAYW27ZCE6",
+      "01KXBZ8PFK35RY6C2CB7TXRQSG"
+     ],
+     "step_id": 65
+    },
+    {
+     "event_ids": [
+      "01KXBZA4JGT3JVY99Y8QBPC4ME",
+      "01KXBZA4JNJSE4VKQVTT2JRAYK",
+      "01KXBZA4PFS5CV36MD5H4CS70H"
+     ],
+     "step_id": 66
+    },
+    {
+     "event_ids": [
+      "01KXBZDB3G9SPN0K21Y7M1Z1KT",
+      "01KXBZDB3MA0X7MAJ4QWTMWT34",
+      "01KXBZDB793Z2KSV19D161WH0W"
+     ],
+     "step_id": 67
+    },
+    {
+     "event_ids": [
+      "01KXBZDEYZMYQVWK3S2WZ70C3K",
+      "01KXBZDEZ5RYSBN5BZ51W5H5B6",
+      "01KXBZDF2YPTXT2AX74APNCZS6"
+     ],
+     "step_id": 68
+    },
+    {
+     "event_ids": [
+      "01KXBZK6W9Q79VKYBJTZVRZQFW",
+      "01KXBZK6WDGXYC9P9PNH493ZF1",
+      "01KXBZK753SNRG8NYCP4NYV85M"
+     ],
+     "step_id": 71
+    },
+    {
+     "event_ids": [
+      "01KXBZK9EP4JVNCMD0Q3Y7Y85X",
+      "01KXBZK9ETYGS65FECK879DQZW",
+      "01KXBZK9F8VHCKF5ZGZEN4S7QT",
+      "01KXBZK9GK044CKYVP1MWT3EV7",
+      "01KXBZK9GPNFDKZJF73HJ2VCZZ"
+     ],
+     "step_id": 72
+    },
+    {
+     "event_ids": [
+      "01KXBZKCXTM24WVBJF0ASCMQQK",
+      "01KXBZKCXYG5TCWAVWK9EHV4TJ",
+      "01KXBZKCYC3HDHGVX7KTRHEFGG",
+      "01KXBZKCZQK82NKYEY61EXT8XM",
+      "01KXBZKCZTSH3YDNSNBSPXVTRQ"
+     ],
+     "step_id": 73
+    },
+    {
+     "event_ids": [
+      "01KXBZKG467WD1CX0HB81C2BMZ",
+      "01KXBZKG4CWMBBQCE97NV7GH3Y",
+      "01KXBZKG4T3WZT37JE21E0BK60",
+      "01KXBZKG63C521MBZR0BEF1E4P",
+      "01KXBZKG67MZ3F2DYJRXDDB7X6"
+     ],
+     "step_id": 74
+    },
+    {
+     "event_ids": [
+      "01KXBZT8WVF71HPK095FH8EVWD"
+     ],
+     "step_id": 81
+    },
+    {
+     "event_ids": [
+      "01KXBZT8X0R5ED1Q1E6C5E4J6S"
+     ],
+     "step_id": 82
+    }
+   ]
+  },
+  {
+   "id": "n-prop7x7zadg5medu",
+   "kind": "investigation",
+   "status": "abandoned",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXZHKDQ0P3885CQ4SPZGVF",
+      "01KXBXZHKHNEEMRV1KF1M32MNC",
+      "01KXBY36VCQWANZ0P0WCNKBSKB"
+     ],
+     "step_id": 32
+    },
+    {
+     "event_ids": [
+      "01KXBY3H9BKXEVZQDRXZWHCQA3",
+      "01KXBY3H9HBSYCH0RB7M7W422R",
+      "01KXBY3H9WYH21DGK23ZR11R32",
+      "01KXBY3HAPHTXQWK5VV3ZTMKNG",
+      "01KXBY3HASV1HM2RYC6R7E8VWQ"
+     ],
+     "step_id": 33
+    }
+   ]
+  },
+  {
+   "id": "n-prop8ocmhamvqurc",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYR19FMQR7TM6SSGN46QYY",
+      "01KXBYR19KQKGP90C26WP18RBT",
+      "01KXBYR19TG7VFGH38TVW53X50",
+      "01KXBYR1A8XNGHQPV53BE2RXMX",
+      "01KXBYR1AB6C6HWRY3BWGM6V88"
+     ],
+     "step_id": 42
+    },
+    {
+     "event_ids": [
+      "01KXBYS2M44Z4X7MKVA2MHP9BW",
+      "01KXBYS2M76BK94PPKPK2491C1",
+      "01KXBYS2MCMSQF7XAV1WDMC5A0",
+      "01KXBYS2MNV56ZQF0867AX31VH",
+      "01KXBYS2MRS0JHFRMZX0G0CSQH"
+     ],
+     "step_id": 43
+    },
+    {
+     "event_ids": [
+      "01KXBYS4X2NKGNCQT3WWYFB643",
+      "01KXBYS4X72HZZMRREV4YMVAFC",
+      "01KXBYS53MPD1YT4RP0ENPT6BZ"
+     ],
+     "step_id": 44
+    },
+    {
+     "event_ids": [
+      "01KXBYSP70QWP6H09546PK7AWV",
+      "01KXBYSP74NKEQP3B7467MM6SH",
+      "01KXBYSP7D5PN1RQA7JBGRZAEB",
+      "01KXBYSP8C0RHDWH9DVMG26K5G",
+      "01KXBYSP8FR803EG7F3P696MP5"
+     ],
+     "step_id": 46
+    }
+   ]
+  },
+  {
+   "id": "n-propagrvzlq35eap",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYYG7C4GFSWBYYNA92F92V",
+      "01KXBYYG7G7QPTY5RCFJ1N4WTP",
+      "01KXBYYGAPZ4AB0CSWNSGQNJM5"
+     ],
+     "step_id": 51
+    }
+   ]
+  },
+  {
+   "id": "n-propb1sze4ruvo1k",
+   "kind": "investigation",
+   "status": "abandoned",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBY3TTP87MRVRGWC81A37AR",
+      "01KXBY3TTT5A8X0EZJ2Y42P05G",
+      "01KXBY3TYFCF2F91XA5XS4TZM0"
+     ],
+     "step_id": 34
+    },
+    {
+     "event_ids": [
+      "01KXBY43YBK4Q6ZAP5E9683QNW",
+      "01KXBY43YHWYSBW3N4S1C18J4V",
+      "01KXBY43YV0TJA828BB117TTZT",
+      "01KXBY43ZW4PV332ZTSJP5ND0T",
+      "01KXBY4400MW2M2EFDF4360QSY"
+     ],
+     "step_id": 35
+    }
+   ]
+  },
+  {
+   "id": "n-prope6fabz41lb9o",
+   "kind": "investigation",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYZXVWHPT65A7K5CZ3BRJG",
+      "01KXBYZXW1957W1H162AWVS5KC",
+      "01KXBYZXZGY38SCXTZNAWFYD53"
+     ],
+     "step_id": 57
+    },
+    {
+     "event_ids": [
+      "01KXBZ07JD62BNVVRDQMYBEJVJ",
+      "01KXBZ07JJAEAJN0YZNPRZ89XD",
+      "01KXBZ07JZE1RQFFHDZCD96CTN",
+      "01KXBZ07M3MECYPEB7EPQYYGKE",
+      "01KXBZ07M7JBDWYGJYBP359YSK"
+     ],
+     "step_id": 58
+    }
+   ]
+  },
+  {
+   "id": "n-propi89kwty45uxx",
+   "kind": "investigation",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBZ4YCY0YPPXT8W192CS4EG",
+      "01KXBZ4YD25R4E8VERZ1H6T0XN",
+      "01KXBZ4YDANYB09A71ZYTH1SRW",
+      "01KXBZ4YDT40TKJH0V2NNDR0YJ",
+      "01KXBZ4YDXKGKGYZ1VSTW37Y92"
+     ],
+     "step_id": 61
+    },
+    {
+     "event_ids": [
+      "01KXBZ50G30KJFNMFVAAKZ6GEH",
+      "01KXBZ50G70XZKTHK5ZA45TD9X",
+      "01KXBZ50QQJKNSZAQTV63RVQ0J"
+     ],
+     "step_id": 62
+    },
+    {
+     "event_ids": [
+      "01KXBZ5DFE3E2F3P2DN00N7QZX",
+      "01KXBZ5DFJYCJJKTED5VNPHRCJ",
+      "01KXBZ5DFYJ1YCJG76NB675T0Y",
+      "01KXBZ5DH4658DG1MN65DWCGYW",
+      "01KXBZ5DH7SX2H36G57GB3S5SN"
+     ],
+     "step_id": 63
+    }
+   ]
+  },
+  {
+   "id": "n-propiob39q0m8at9",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBY4DPMTJPZY9Z7AHNG2V40",
+      "01KXBY4DPRDWQX1KQ66217KAN7",
+      "01KXBY4DTF7GWVKS30M74WSMEX"
+     ],
+     "step_id": 36
+    },
+    {
+     "event_ids": [
+      "01KXBY4P78B9F4YPZRR7N0326Y",
+      "01KXBY4P7EWY5ABWZ4FNBCE03Z",
+      "01KXBY4P7SJBK0AFT31AC6FPCP",
+      "01KXBY4P8WB8HBD3V1GXJ34Q5C",
+      "01KXBY4P8ZC4GN1KY26APCEX59"
+     ],
+     "step_id": 37
+    }
+   ]
+  },
+  {
+   "id": "n-propl49vcsnzale5",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXET779PBJ0DRWYQRSZJVR",
+      "01KXBXET7CBR737YAZ1V58ERMS",
+      "01KXBXET9FGC2CHZ8J8P6F7AQ4"
+     ],
+     "step_id": 22
+    }
+   ]
+  },
+  {
+   "id": "n-propnomrtqtyt0nj",
+   "kind": "investigation",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYYJVGH7119PXTKJ3CETFH",
+      "01KXBYYJVKQY9AN40DP3JZS46E",
+      "01KXBYYK3FS0K8NTT8XHNQB94R"
+     ],
+     "step_id": 52
+    }
+   ]
+  },
+  {
+   "id": "n-proprowg5f4sy6ml",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBXF09A5ZCXB331M590C9F7",
+      "01KXBXF09ENAA5CCQ7Q95QYVHJ",
+      "01KXBXJNH1K6GSP62SZREC7SWC"
+     ],
+     "step_id": 23
+    }
+   ]
+  },
+  {
+   "id": "n-propwnhmn1p46b32",
+   "kind": "investigation",
+   "status": "dead_end",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBX7A8RTZBHV83MQ6ZW4B42",
+      "01KXBX7A9H90D0F0PFZHMVNYRX",
+      "01KXBX7AGM8NTZZ6WFC325DTJE"
+     ],
+     "step_id": 18
+    },
+    {
+     "event_ids": [
+      "01KXBXD196P4YPR5CDK3YTPBS3",
+      "01KXBXD19ARX36568BXZVFAK2H",
+      "01KXBXD19MVF4HT32TK5XMCHDA",
+      "01KXBXD1ABFCG2A9PT2K0E8ATW",
+      "01KXBXD1AE14572P04RWCWVRW7"
+     ],
+     "step_id": 21
+    }
+   ]
+  },
+  {
+   "id": "n-propy4ev0cexyced",
+   "kind": "investigation",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBYSEYGJ7N74J6BZRGHVFD5",
+      "01KXBYSEYKZR2MPZDQ740TW1DE",
+      "01KXBYSEYV5S1FZ6S1B7YE4BPV",
+      "01KXBYSEZEHGCY6BARQ2FC2FGY",
+      "01KXBYSEZH9KQD5TV5PTA3GZCB"
+     ],
+     "step_id": 45
+    },
+    {
+     "event_ids": [
+      "01KXBYSVNXWWXSFP4JB1N63CJD",
+      "01KXBYSVP3NP3CZ4ECE84J9M3T",
+      "01KXBYSVW9ZH07XZMAAZCTG4YK"
+     ],
+     "step_id": 47
+    },
+    {
+     "event_ids": [
+      "01KXBYT135GW1070Q1EEET3E59",
+      "01KXBYT13BAZ4P36GFDEJ2HETW",
+      "01KXBYT13P0EM5YXM3MKMYYFG5",
+      "01KXBYT14TMTR8WW473MPNW2DA",
+      "01KXBYT14X3BB7H3EZZ1R1CBN4"
+     ],
+     "step_id": 48
+    }
+   ]
+  },
+  {
+   "id": "n-propz132u6gaiw6h",
+   "kind": "investigation",
+   "status": "succeeded",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBY880WR9TR2Q189MSHGC6D",
+      "01KXBY880Z9SHT5GFYJMR0JG9Y",
+      "01KXBY883WZ67QV99SZYNYRS32"
+     ],
+     "step_id": 38
+    },
+    {
+     "event_ids": [
+      "01KXBYG2X16BA69KQQPQ312W4F",
+      "01KXBYG2X55ZRAZ5MXPWRVDNFH",
+      "01KXBYG2XHANSA0REN6B6ED0D3",
+      "01KXBYG2YJYA5F4XYVYPW60QD3",
+      "01KXBYG2YPG3YDH87TC9WH93SQ"
+     ],
+     "step_id": 41
+    }
+   ]
+  },
+  {
+   "id": "n-raa1a81chsnrw5toen5",
+   "kind": "question",
+   "status": "open",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBW6XBM3DGJ3D2S29N6VQM2"
+     ],
+     "step_id": 0
+    },
+    {
+     "event_ids": [
+      "01KXBW6Z5M549YFYZKMACE37V2",
+      "01KXBW6Z5R4RHP2BQV89BM2ZQR",
+      "01KXBW6Z5W65MR7CQNCE8WG6FH"
+     ],
+     "step_id": 1
+    }
+   ]
+  },
+  {
+   "id": "n-sao1is14t7bys1lt5ehi",
+   "kind": "synthesis",
+   "status": "verified",
+   "turns": [
+    {
+     "event_ids": [
+      "01KXBWY3WF6R0G9XZAM2JY5KMT",
+      "01KXBWY3WMS1390VDSCME5W532",
+      "01KXBWY3WY0N5DCNEV8VYEVTCG",
+      "01KXBWY3XJR68XH9PA3YGG8MQX",
+      "01KXBWY3XPT0JY3ZYRTVHT1NHH"
+     ],
+     "step_id": 15
+    }
+   ]
+  }
+ ],
+ "session_id": "01KXBZY130DSAMPT8C72558Z4J"
+}
