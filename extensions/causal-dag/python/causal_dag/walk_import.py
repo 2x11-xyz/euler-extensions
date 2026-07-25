@@ -54,7 +54,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .invariants import recompute_diagnostics
+from .invariants import recompute_diagnostics, warning_sort_key
 from .schema import (
     Artifact, Basis, Construction, Edge, EventRange, Node, Projection,
     Session, SourceRef, Turn, Warning,
@@ -211,7 +211,7 @@ def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
     if not nodes:
         warnings.append(Warning("empty_forest", "info",
                                 "the walk export contains no nodes"))
-    artifact.diagnostics.warnings = warnings
+    artifact.diagnostics.warnings = sorted(warnings, key=warning_sort_key)
     return artifact
 
 

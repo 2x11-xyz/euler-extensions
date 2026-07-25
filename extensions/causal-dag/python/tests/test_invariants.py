@@ -116,6 +116,14 @@ FAIL_CASES = [
      lambda a: setattr(a.nodes[1], "turns", [Turn(9, ["ev-9"]), Turn(8, ["ev-8"])])),
     ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(1, ["ev-1b"]))),
     ("one_node_per_turn", lambda a: a.nodes[1].turns.append(Turn(7, ["ev-1"]))),
+    ("degraded_marking",
+     lambda a: setattr(a.session, "event_range", EventRange(None, "ev-5", True))),
+    ("degraded_marking",
+     lambda a: setattr(a.session, "event_range", EventRange("ev-0", "ev-5", False))),
+    ("source_ref_shape",
+     lambda a: (setattr(a.edges[5], "source_refs", []),
+                setattr(a.edges[5].basis, "kind", "inferred"),
+                setattr(a.edges[5].basis, "source_ref_ids", []))),
     ("subgoal_forks_from_goal",
      lambda a: a.edges.append(_edge("edge-8", "node-e", "node-d", "structural", "fork", False, "ev-4"))),
     ("verification_fans",
@@ -314,6 +322,16 @@ class StrictLoadsTest(unittest.TestCase):
         art = build_valid()
         art.diagnostics.warnings.append(W("odd", "catastrophic", "message"))
         self.assertIn("diagnostics", _names(check(art)))
+
+    def test_warning_order_and_id_lists_are_canonical(self):
+        from causal_dag.schema import Warning as W
+        art = build_valid()
+        art.diagnostics.warnings = [W("z", "info", "m"), W("a", "info", "m")]
+        self.assertIn("canonical_ordering", _names(check(art)))
+        art2 = build_valid()
+        art2.diagnostics.warnings = [W("x", "info", "m",
+                                       node_ids=["node-b", "node-a-root"])]
+        self.assertIn("canonical_ordering", _names(check(art2)))
 
     def test_serializer_preserves_reported_violations(self):
         # dumps must never silently repair what check reports: a duplicated

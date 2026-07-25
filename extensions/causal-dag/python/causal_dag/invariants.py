@@ -130,7 +130,23 @@ def check_canonical_ordering(art: Artifact) -> List[Finding]:
         if not sorted_unique([t.step_id for t in n.turns]):
             out.append(_f("canonical_ordering",
                           f"node {n.id} turns not sorted by step_id", node_ids=[n.id]))
+    for w in art.diagnostics.warnings:
+        for ids in (w.node_ids, w.edge_ids, w.source_ref_ids):
+            if not sorted_unique(ids):
+                out.append(_f("canonical_ordering",
+                              f"warning {w.code} id lists not sorted/unique"))
+                break
+    keys = [warning_sort_key(w) for w in art.diagnostics.warnings]
+    if any(keys[i] >= keys[i + 1] for i in range(len(keys) - 1)):
+        out.append(_f("canonical_ordering", "warnings not in canonical order"))
     return out
+
+
+def warning_sort_key(w) -> tuple:
+    """Canonical warning order (v3): code, severity rank, message, id lists."""
+    rank = {"error": 0, "warning": 1, "info": 2}.get(w.severity, 3)
+    return (w.code, rank, w.message, tuple(w.node_ids), tuple(w.edge_ids),
+            tuple(w.source_ref_ids))
 
 
 def check_vocabulary(art: Artifact) -> List[Finding]:
@@ -163,6 +179,11 @@ def check_source_ref_shape(art: Artifact) -> List[Finding]:
                 out.append(_f("source_ref_shape", f"unknown basis kind {owner.basis.kind!r}"))
             if owner.basis.kind in ("direct", "cluster", "operator") and not owner.source_refs:
                 out.append(_f("source_ref_shape", f"{oid} basis {owner.basis.kind} needs source_refs"))
+            if (owner.basis.kind in ("inferred", "chronology") and not owner.source_refs
+                    and not art.projection.degraded):
+                out.append(_f("source_ref_shape",
+                              f"{oid} empty {owner.basis.kind} basis is only "
+                              f"legal in a degraded projection"))
             for rid in owner.basis.source_ref_ids:
                 if rid not in local:
                     out.append(_f("source_ref_shape", f"{oid} basis cites missing source_ref {rid}"))
@@ -305,11 +326,19 @@ def check_backbone_class(art: Artifact) -> List[Finding]:
 
 
 def check_degraded_marking(art: Artifact) -> List[Finding]:
-    """Sequence edges exist only in degraded projections, and must be warned (§1.4, v3)."""
+    """Degradation is explicit, never implied (§1.4, v3): sequence edges and an
+    incomplete range require projection.degraded; the range nulls pair."""
+    out: List[Finding] = []
+    rng = art.session.event_range
+    if (rng.start is None) != (rng.end is None):
+        out.append(_f("degraded_marking", "event_range start/end must both be "
+                                          "null or both be event ids"))
+    if not rng.complete and not art.projection.degraded:
+        out.append(_f("degraded_marking",
+                      "incomplete event_range requires projection.degraded"))
     sequence_ids = sorted(e.id for e in art.edges if e.kind == "sequence")
     if not sequence_ids:
-        return []
-    out: List[Finding] = []
+        return out
     if not art.projection.degraded:
         out.append(_f("degraded_marking",
                       "sequence edges present but projection.degraded is false",
