@@ -22,6 +22,11 @@ def structural_projection(artifact: Artifact) -> Dict[str, Any]:
                 "id": n.id,
                 "kind": n.kind,
                 "status": n.status,
+                # The consolidation flag is the checkpoint/synthesis
+                # distinction (Q3) — structural, content-free, so it belongs
+                # in the shape gate.
+                **({"consolidation": bool(n.metadata.get("consolidation"))}
+                   if n.kind == "synthesis" else {}),
                 "turns": [{"step_id": t.step_id, "event_ids": list(t.event_ids)}
                           for t in n.turns],
             }

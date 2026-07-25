@@ -18,6 +18,7 @@ from causal_dag import (  # noqa: E402
 )
 
 MANIFEST = pathlib.Path(__file__).resolve().parent / "gold_structure.json"
+DIGEST = pathlib.Path(__file__).resolve().parent / "gold_digest.txt"
 
 TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
 EXPORT = TOOL / "exports" / "01KXBZY130DSAMPT8C72558Z4J-gold-20260724.json"
@@ -66,6 +67,22 @@ class GoldRoundTripTest(unittest.TestCase):
         # or backbone flags diverges from tests/gold_structure.json.
         manifest = json.loads(MANIFEST.read_text())
         self.assertEqual(structural_projection(self.artifact), manifest)
+
+    def test_pristine_projection_state(self):
+        # The gold artifact is semantic and complete: degraded must stay off
+        # (it is the flag that relaxes citation rules), the range complete,
+        # and no warnings present. Pins the importer against regressions in
+        # its own escape hatches.
+        self.assertFalse(self.artifact.projection.degraded)
+        self.assertTrue(self.artifact.session.event_range.complete)
+        self.assertEqual(self.artifact.diagnostics.warnings, [])
+
+    def test_full_content_digest(self):
+        # The manifest pins shape; this pins everything else (titles, notes,
+        # bases) without publishing it: a sha256 over the canonical bytes.
+        import hashlib
+        digest = hashlib.sha256(dumps(self.artifact).encode()).hexdigest()
+        self.assertEqual(digest, DIGEST.read_text().strip())
 
     def test_counts_match_export(self):
         self.assertEqual(len(self.artifact.nodes), len(self.export["nodes"]))
