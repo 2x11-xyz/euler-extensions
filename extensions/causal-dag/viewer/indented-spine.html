@@ -126,7 +126,7 @@ document.addEventListener('click', function (e) {
       <div style="display:flex; flex-wrap:nowrap; gap:8px; align-items:baseline; font-size:11.5px; white-space:nowrap;">
         <span style="font-size:15px; color:{{ sel.color }}; opacity:{{ sel.op }};">{{ sel.glyph }}</span>
         <span style="color:{{ sel.color }}; opacity:{{ sel.op }};">{{ sel.statusWord }}</span>
-        <span style="color:{{ th.sub }}; flex:none;">· {{ sel.kind }}</span>
+        <span style="color:{{ th.sub }}; flex:none;">· {{ sel.kindGlyph }} {{ sel.kind }}</span>
       </div>
       <div style="color:{{ th.text }}; font-size:13.5px; font-weight:600; line-height:1.4; font-family:Georgia, serif;">{{ sel.title }}</div>
       <div style="color:{{ th.body }}; font-size:12.5px; line-height:1.55; font-family:Georgia, serif;">{{ sel.summary }}</div>
@@ -163,6 +163,8 @@ const OPACITY = Object.fromEntries(STATUS_ORDER.map((s) => [s, 1]));
 const ARC_DAY = TOKENS.cross_arcs.kinds;
 const ARC_NIGHT = TOKENS.cross_arcs.kinds;
 const ARCC = TOKENS.cross_arcs.kinds;
+// v5 kind glyphs for the 2D detail surface (question/investigation/claim/synthesis).
+const KINDG = TOKENS.kinds ? Object.fromEntries(Object.keys(TOKENS.kinds).map((k) => [k, TOKENS.kinds[k].glyph])) : {};
 
 class Component extends DCLogic {
   state = { dag: null, hover: null, panel: false, nav2d: false, nav3d: false, uiTheme: null, uiGap: null, uiArcs: null, vx: null, vy: null, vs: 1 };
@@ -282,7 +284,7 @@ class Component extends DCLogic {
       tW = Math.max(tW, p.x + 17 + n.title.length * 7.85 + 20);
       return {
         x: p.x, y: p.y, lx: p.x + 17,
-        status: n.status, kind: n.kind, glyph: n.kind === 'root' ? '○' : GLYPH[n.status], title: n.title, col: n.kind === 'root' ? ROOT : PAL[n.status], op: OPACITY[n.status],
+        status: n.status, kind: n.kind, glyph: n.isRoot ? '○' : GLYPH[n.status], title: n.title, col: n.isRoot ? ROOT : PAL[n.status], op: OPACITY[n.status],
         w: selected ? '600' : '400',
         enter: () => this.setState({ hover: id })
       };
@@ -309,7 +311,7 @@ class Component extends DCLogic {
     if (String(this.state.hover).indexOf('arc:') === 0) {
       const a = dag.arcs[+this.state.hover.slice(4)];
       sel = {
-        glyph: '⤳', color: ARCC[a.kind] || th.sub, op: 1, statusWord: a.kind, kind: 'cross-arc',
+        glyph: '⤳', color: ARCC[a.kind] || th.sub, op: 1, statusWord: a.kind, kind: 'cross-arc', kindGlyph: '',
         title: byId[a.from].title + '  →  ' + byId[a.to].title,
         summary: a.note || '', ev: '—', links: []
       };
@@ -322,7 +324,7 @@ class Component extends DCLogic {
       });
       sel = {
         glyph: GLYPH[n.status], color: PAL[n.status], op: OPACITY[n.status], statusWord: WORD[n.status],
-        kind: n.kind,
+        kind: n.kind, kindGlyph: (n.consolidation ? KINDG.consolidation : KINDG[n.kind]) || '',
         title: n.title, summary: n.summary, ev: n.ev, links
       };
     }

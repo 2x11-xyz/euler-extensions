@@ -265,8 +265,8 @@ class Component extends DCLogic {
     this.axisBot = { x: 0, y: -(nodes.length - 1) * stepY - cy - stepY * 1.5, z: 0 };
     this.ticks = nodes.map((n) => ({ x: 0, y: P[n.id].y, z: 0 }));
     this.pts = nodes.map((n) => ({
-      id: n.id, p: P[n.id], st: n.status, kind: n.kind,
-      big: n.kind === 'root' || n.kind === 'synthesis'
+      id: n.id, p: P[n.id], st: n.status, kind: n.kind, isRoot: n.isRoot,
+      big: n.isRoot || n.kind === 'synthesis'
     }));
     // depth-1 branches leave the central time-vein at the moment they start
     const rootSet = new Set(roots);
@@ -473,7 +473,7 @@ class Component extends DCLogic {
     for (const n of order) {
       const s = S[n.id];
       if (s.off) continue;
-      n.col = n.kind === 'root' ? (misty ? TOKENS.root.day : TOKENS.root.night) : PAL[n.st];
+      n.col = n.isRoot ? (misty ? TOKENS.root.day : TOKENS.root.night) : PAL[n.st];
       const r = clamp((n.big ? 7.5 : 5.5) * s.s, 1.5, 12);
       const a = clamp(s.a, 0.12, 1);
       // fake bokeh: out-of-focus nodes render as bigger, softer, dimmer discs

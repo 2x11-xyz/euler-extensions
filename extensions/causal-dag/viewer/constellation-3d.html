@@ -241,8 +241,8 @@ class Component extends DCLogic {
     nodes.forEach((n) => { P[n.id].y -= cy; });
     this.P = P;
     this.pts = nodes.map((n) => ({
-      id: n.id, p: P[n.id], st: n.status, kind: n.kind,
-      big: n.kind === 'root' || n.kind === 'synthesis'
+      id: n.id, p: P[n.id], st: n.status, kind: n.kind, isRoot: n.isRoot,
+      big: n.isRoot || n.kind === 'synthesis'
     }));
     this.edges = nodes.filter((n) => n.parent).map((n) => [n.parent, n.id]);
     this.arcs3 = arcs.map((a) => [a.from, a.to]);
@@ -388,7 +388,7 @@ class Component extends DCLogic {
     this.hit = [];
     for (const n of order) {
       const s = S[n.id];
-      n.col = n.kind === 'root' ? (misty ? TOKENS.root.day : TOKENS.root.night) : PAL[n.st];
+      n.col = n.isRoot ? (misty ? TOKENS.root.day : TOKENS.root.night) : PAL[n.st];
       const r = clamp((n.big ? 7.5 : 5.5) * s.s, 1.5, 12);
       const a = clamp(s.a, 0.12, 1);
       // fake bokeh: out-of-focus nodes render as bigger, softer, dimmer discs
