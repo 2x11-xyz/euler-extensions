@@ -27,9 +27,16 @@ and lineage machinery (proven infrastructure) and adopts v4's central insight
    happened) rides in the `{repair, pivot, refutation}` edge family.
    Views select a lens; the artifact stores both. A generative edge is
    drawn only where content shows dependence — never from adjacency.
-4. **Honest degradation.** When semantic interpretation is unavailable, the
-   projection degrades explicitly (as v3 did): degraded output is marked,
-   never silently presented as semantic.
+4. **Honest degradation.** Loss of fidelity is always declared, on the axis
+   where it occurs. *Structural* degradation (chronology fallback, an
+   incomplete window) is declared via `projection.degraded`, which also
+   relaxes the citation rules below. *Vocabulary* loss (a status mapped
+   lossily during import) is declared via `lossy_status_mapping` warnings
+   naming the affected nodes — it does not set `projection.degraded`,
+   because the graph's structure and citations are intact and relaxing
+   structural rules for a vocabulary approximation would make the artifact
+   *less* honest. Both channels are explicit declarations; neither loss is
+   ever silent.
 5. **Statuses live.** Nodes are born `open` and change status by evidence,
    not birth (R3). A projection whose nodes are born terminal is failing
    (the old system's frozen-status pathology).
@@ -106,7 +113,14 @@ completeness: for any terminal node, "what would disappear had this failure
 not happened?" must be reachable via its outgoing pivot/repair/refutation
 edges.
 
-## 4. Structural invariants (machine-checkable; the rulings)
+## 4. Structural invariants (the rulings)
+
+Checkability varies and the checker must be honest about it: rules 1, 2, 6
+and 9 are fully machine-checkable; rules 3 and 4 have mechanical *shadows*
+(fork/decomposition never springs from a synthesis; verification never
+chains off a verification target) while their full intent — the
+abandonment counterfactual — stays in the review lane; rules 5, 7 and 8
+are intent/lifecycle rules a static snapshot cannot check at all.
 
 1. One node per turn; nodes may span non-contiguous turns (R1, R2).
 2. Terminal-status nodes take structural children only via `repair` edges,
@@ -122,9 +136,14 @@ edges.
 5. Integration attaches to the goal it delivers, drawing from contributing
    branches via annotations (R11).
 6. Generative edges (`repair`, `pivot`, `refutation`) must be
-   content-backed: the citing node's source_refs overlap the failure's
-   evidence or cite its counterexample (Q4 discipline). Adjacency alone
-   never justifies an edge.
+   content-backed: the **edge's** source_refs overlap the failure (from)
+   node's evidence or cite its counterexample (Q4 discipline). Adjacency
+   alone never justifies an edge. The evidence lives on the edge, not on
+   the citing node — under turn atomicity (R1) two nodes own disjoint
+   turns, so node-to-node event overlap is structurally impossible; this
+   matches how v3's conformance suite enforced the terminal-repair rule.
+   The same edge-carries-evidence reading applies to the repair rule in
+   invariant 2.
 7. Nodes are created `open` (R3).
 8. Statuses are graded on the node — the set of turns — never per turn (R6).
 9. Backbone integrity violations in *operator/annotation* inputs are
@@ -146,6 +165,18 @@ active_root, nodes, edges}`, `diagnostics` — with:
   basis, metadata`. `turns[]` is new: the ordered event-id spans of the
   turns the node owns (R1) — segmentation is first-class, not recoverable
   only from source_refs. `root_id` is retained (derived) for viewer compat.
+- Edge source_refs: every edge carries its own citations. For
+  operator-asserted graphs (walk imports) where the human drew edges
+  without explicit citations, the converter derives one `event` ref
+  anchored on the from-node's evidence — which is what makes repair/
+  pivot/refutation edges share evidence with the failure they spring
+  from by construction (§4.2, §4.6). Observer-asserted edges must cite
+  their evidence explicitly. **Degraded exception:** in a projection
+  marked `degraded`, nodes and edges whose basis is `inferred` or
+  `chronology` may carry no source_refs — the chronology fallback asserts
+  ordering, not causality, and pretending citations it does not have
+  would be dishonest. A degraded projector should still cite where it
+  can (its nodes own turns whose events are known).
 - Diagnostics: v3's recomputed counter set carries over where meaningful;
   counters referring to removed concepts (`root_count` by kind) re-derive
   from topology. Two additions: `refuted_claim_count` and
@@ -153,24 +184,33 @@ active_root, nodes, edges}`, `diagnostics` — with:
 - Lineage rules (predecessor chaining, immutable revisions, active
   pointer) carry over from v3 unchanged.
 
-## 6. Compatibility
+## 6. Compatibility and conformance (ruling 12)
 
-- **v3 projection (viewer lane):** a lossy but faithful down-conversion for
-  the existing HTML viewer family: `question`→`root`/`checkpoint` by
-  position, `investigation`→`attempt`, verdicts map onto the eight-status
-  palette (`refuted`→`dead_end` glyphed as refutation, `supported`→
-  `success`, `proven`→`verified`, `answered`→`success`). The down-converter
-  ships with the extension so the euler-8dg viewer renders v5 sessions
-  until a v5-native viewer exists.
+v5 owes nothing to v3 parity. The implementation is measured against this
+spec, the walk rulings (DECISIONS.md), and the gold-standard walk data —
+never against the archived v3 suite, which is a source of ideas adopted
+deliberately, one by one, each justified by a v5 principle (provenance
+grounding, honest degradation, deterministic serialization,
+scientific-record integrity). The adopted set and the reasons live in
+`CONFORMANCE.md`, which is the review standard.
+
+- **Viewer:** the archived HTML viewers (2D top-down, indented spine, 3D
+  and 3.5D constellations, recoverable from euler git history) are adapted
+  to render v5 natively — the v5 kinds and per-kind statuses get their own
+  visual identity. There is no v3 down-conversion lane.
+- **Canonical serialization is v5-defined:** deterministic byte-identical
+  output with closed key sets, id-sorted collections, canonically ordered
+  warnings (code, severity rank, message, id tuples — Python tuple order),
+  and shared validation between reading and writing. v3's encodings are
+  not authoritative.
 - **Hints:** the observer contract becomes `euler.causal_dag.hints.v3`,
   identical in shape to hints.v2 with the v5 kind/status vocabulary and
   `turns[]` on nodes. The backbone rule, source_ref shape, basis kinds, and
-  occurrence anchors carry over unchanged.
-- The v3 fixtures and conformance suite remain in this package as prior
-  art; the v5 acceptance gate is (a) the invariant checker in §4 and
-  (b) round-tripping the walk's gold graph: projecting the baseline
-  session's annotation export must satisfy every invariant and reproduce
-  the human graph's segmentation and backbone shape.
+  occurrence anchors carry over deliberately (provenance grounding).
+- **Acceptance gate:** (a) the invariant checker returns no findings and
+  (b) the walk's gold graph round-trips: projecting the baseline session's
+  annotation export must satisfy every invariant and reproduce the human
+  graph's segmentation and backbone shape.
 
 ## 7. Open decision points for review
 
@@ -182,6 +222,7 @@ active_root, nodes, edges}`, `diagnostics` — with:
    arguably should accept non-repair children once unblocked — proposal:
    `blocked` is terminal *while current*, and unblocking is a status
    change back to `open`).
-4. Whether the v3 down-converter is a launch requirement or a follow-up.
+4. ~~Whether the v3 down-converter is a launch requirement or a follow-up.~~
+   Resolved by ruling 12: no down-converter — the viewers adapt to v5.
 5. Schema id: `v5` continues the lineage past v4; alternative is a fresh
    identifier line if v5 is considered a different artifact family.

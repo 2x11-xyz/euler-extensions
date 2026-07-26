@@ -1,0 +1,302 @@
+"""Convert a ``causal-dag.walk-annotations.v2`` export into a v5 artifact.
+
+The walk was annotated in the *old* vocabulary (root/attempt/claim/checkpoint/
+synthesis, the eight flat statuses). This converter maps it mechanically to v5.
+It never re-interprets the human's grading — ``dead_end`` stays ``dead_end``; a
+walk that graded a refuted claim as ``dead_end`` (the Q2 miscoding) is carried
+across faithfully, not silently promoted to ``refuted``.
+
+Kind mapping (old -> v5):
+
+    root        -> question        rootness is topology (§2.1); the human's
+                                   goal node becomes a question.
+    attempt     -> investigation   cross-domain rename (Q3).
+    claim       -> claim           unchanged.
+    checkpoint  -> synthesis       kind dropped (Q3); metadata.consolidation=True.
+    synthesis   -> synthesis       metadata.consolidation=False.
+
+Status mapping (old -> v5), per target kind (§2.2 per-kind axes). Cells the gold
+walk never exercises are best-effort and marked lossy:
+
+    question:   open->open  blocked->blocked  success/verified->answered
+                dead_end/abandoned->abandoned  superseded->superseded
+                inconclusive->open (lossy)
+    investigation: open->open  blocked->blocked  dead_end->dead_end
+                success->succeeded  verified->verified  superseded->superseded
+                abandoned->abandoned  inconclusive->dead_end (lossy: no
+                investigation verdict for "unsettled")
+    claim:      open->open  success->supported  verified->supported (lossy:
+                never *strengthen* — proven is reserved for deductive evidence
+                the old grading cannot attest)  dead_end->abandoned (lossy: the
+                Q2 miscoding is carried, not promoted to refuted; regrade in a
+                new walk to claim refuted)  inconclusive->inconclusive
+                superseded->superseded  abandoned->abandoned  blocked->open (lossy)
+    synthesis:  open->open  success->stated  verified->verified
+                superseded->superseded  dead_end/abandoned->abandoned
+                inconclusive/blocked->open (lossy)
+
+Rootness / the deliberately-unplaced node: rootness is pure topology (§2.1) — a
+root is any node with no backbone parent. The converter changes no kind or status
+on that basis. The gold walk's ``apply_patch`` node (kind synthesis) was left
+without a backbone parent on purpose; it therefore surfaces as a second root with
+its kind and status unchanged, exactly as SCHEMA-v5's rootness-is-topology
+demands. Only the human's explicit ``root``-kind node is renamed (to ``question``).
+
+Provenance: a node owns whole turns (R1); its ``turns[]`` come from ``node_steps``
+joined to the session's ``steps[].event_ids``. Each turn yields one ``event``
+source_ref anchored on the turn's first event, ``payload_pointer`` null. Every
+node and edge carries basis kind ``operator`` — a human asserted the graph. Each
+edge anchors on its ``from`` node's evidence, which is what makes repair/pivot/
+refutation edges share evidence with the failure they spring from (§4.2, §4.6).
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from .invariants import recompute_diagnostics, warning_sort_key
+from .schema import (
+    Artifact, Basis, Construction, Edge, EPOCH, EventRange, Node, Projection,
+    Session, SourceRef, Turn, Warning,
+)
+
+KIND_MAP = {
+    "root": "question",
+    "attempt": "investigation",
+    "claim": "claim",
+    "checkpoint": "synthesis",
+    "synthesis": "synthesis",
+}
+
+STATUS_MAP: Dict[str, Dict[str, str]] = {
+    "question": {"open": "open", "blocked": "blocked", "success": "answered",
+                 "verified": "answered", "dead_end": "abandoned",
+                 "abandoned": "abandoned", "superseded": "superseded",
+                 "inconclusive": "open"},
+    "investigation": {"open": "open", "blocked": "blocked", "dead_end": "dead_end",
+                      "success": "succeeded", "verified": "verified",
+                      "superseded": "superseded", "abandoned": "abandoned",
+                      "inconclusive": "dead_end"},
+    "claim": {"open": "open", "success": "supported", "verified": "supported",
+              "dead_end": "abandoned", "inconclusive": "inconclusive",
+              "superseded": "superseded", "abandoned": "abandoned", "blocked": "open"},
+    "synthesis": {"open": "open", "success": "stated", "verified": "verified",
+                  "superseded": "superseded", "dead_end": "abandoned",
+                  "abandoned": "abandoned", "inconclusive": "open", "blocked": "open"},
+}
+
+# Status cells the gold walk never exercises map with information loss; the
+# artifact must say so (honest degradation) — each use emits a warning.
+LOSSY_CELLS = frozenset({
+    ("question", "inconclusive"), ("investigation", "inconclusive"),
+    ("claim", "blocked"), ("claim", "verified"), ("claim", "dead_end"),
+    ("synthesis", "inconclusive"), ("synthesis", "blocked"),
+    ("synthesis", "dead_end"), ("question", "dead_end"),
+})
+
+def import_walk(export: Dict[str, Any], steps: List[Dict[str, Any]],
+                events: Dict[str, Dict[str, str]]) -> Artifact:
+    """Project a walk-annotations.v2 export + its session steps into a v5 artifact.
+
+    ``events`` is an *ordered* mapping of event id -> ``{"kind": ..., "ts": ...}``
+    whose iteration order is the provenance stream order (build it by reading the
+    session log top to bottom). Stream order is authoritative: euler event ids
+    are non-monotonic ULIDs, so ranges and anchors are derived from position,
+    never from id sorting. Citations must be honest: every event a turn owns
+    must be present in ``events`` — an unknown event is an error, not a default.
+    ``generated_at`` equals the range-end event's timestamp (inherited v3 rule),
+    not the export's wall-clock time.
+    """
+    if export.get("schema") != "causal-dag.walk-annotations.v2":
+        raise ValueError(f"not a walk-annotations.v2 export "
+                         f"(schema: {export.get('schema')!r})")
+    for key in ("session_id", "nodes", "node_steps", "edges"):
+        if key not in export:
+            raise ValueError(f"export missing {key!r}")
+
+    order = {eid: i for i, eid in enumerate(events)}
+    step_events: Dict[int, List[str]] = {}
+    for s in steps:
+        if s["step_id"] in step_events:
+            raise ValueError(f"steps list repeats step_id {s['step_id']}")
+        step_events[s["step_id"]] = list(s.get("event_ids", []))
+    for step_id, evs in step_events.items():
+        for ev in evs:
+            if ev not in order:
+                raise ValueError(f"no event metadata known for event {ev} (step {step_id})")
+
+    known_nodes = {n.get("node_id") for n in export["nodes"]}
+
+    owned_steps: Dict[str, List[int]] = {}
+    assigned: Dict[int, str] = {}
+    for entry in export["node_steps"]:
+        if entry["node_id"] not in known_nodes:
+            raise ValueError(f"node_steps assigns step {entry['step_id']} to "
+                             f"unknown node {entry['node_id']!r}")
+        if entry["step_id"] not in step_events:
+            raise ValueError(
+                f"node_steps references step {entry['step_id']} absent from the "
+                f"session's steps — a turn cannot own events that do not exist")
+        if entry["step_id"] in assigned:
+            raise ValueError(f"step {entry['step_id']} assigned to both "
+                             f"{assigned[entry['step_id']]} and {entry['node_id']} (R2)")
+        assigned[entry["step_id"]] = entry["node_id"]
+        owned_steps.setdefault(entry["node_id"], []).append(entry["step_id"])
+
+    old_kind = {n["node_id"]: n["kind"] for n in export["nodes"]}
+    backbone_parent = {
+        e["to_node"]: e["from_node"] for e in export["edges"] if e.get("backbone")
+    }
+
+    def climb_root(nid: str) -> str:
+        seen = set()
+        while nid in backbone_parent and nid not in seen:
+            seen.add(nid)
+            nid = backbone_parent[nid]
+        return nid
+
+    # node id -> its evidence anchor (first event of its first owned turn).
+    anchor: Dict[str, SourceRef] = {}
+    nodes: List[Node] = []
+    lossy: Dict[tuple, List[str]] = {}
+    seen_nids: set = set()
+    for raw in export["nodes"]:
+        nid = raw.get("node_id")
+        if not nid:
+            raise ValueError("export node without a node_id")
+        if nid in seen_nids:
+            raise ValueError(f"export repeats node_id {nid!r}")
+        seen_nids.add(nid)
+        if raw.get("kind") not in KIND_MAP:
+            raise ValueError(f"node {nid}: unknown kind {raw.get('kind')!r}")
+        kind = KIND_MAP[raw["kind"]]
+        if raw.get("status") not in STATUS_MAP[kind]:
+            raise ValueError(f"node {nid}: unknown status {raw.get('status')!r} "
+                             f"for old kind {raw['kind']!r}")
+        status = STATUS_MAP[kind][raw["status"]]
+        if not owned_steps.get(nid):
+            raise ValueError(f"node {nid} owns no turns — finish the assignment "
+                             f"pass before importing (R1)")
+        if (kind, raw["status"]) in LOSSY_CELLS:
+            lossy.setdefault((kind, raw["status"], status), []).append(nid)
+        turns, refs = _turns_and_refs(nid, owned_steps.get(nid, []), step_events,
+                                      events, order)
+        metadata: Dict[str, Any] = {}
+        if kind == "synthesis":
+            metadata["consolidation"] = raw["kind"] == "checkpoint"
+        nodes.append(Node(
+            id=nid,
+            root_id=climb_root(nid),
+            kind=kind,
+            status=status,
+            title=raw.get("title", "").strip(),
+            summary=raw.get("note", ""),
+            turns=turns,
+            source_refs=refs,
+            basis=Basis("operator", _node_basis_summary(raw), sorted(r.id for r in refs)),
+            metadata=metadata,
+        ))
+        if refs:
+            anchor[nid] = min(refs, key=lambda r: order[r.event_id])
+
+    nodes.sort(key=lambda n: n.id)
+    edges = sorted((_edge(raw, anchor) for raw in export["edges"]), key=lambda e: e.id)
+
+    cited = {ev for evs in step_events.values() for ev in evs}
+    start = min(cited, key=order.__getitem__) if cited else None
+    end = max(cited, key=order.__getitem__) if cited else None
+
+    artifact = Artifact(
+        generated_at=events[end]["ts"] if end is not None else EPOCH,
+        session=Session(export["session_id"], EventRange(start, end, complete=True)),
+        projection=Projection("causal-dag", end, "bounded_provenance_query", degraded=False),
+        construction=Construction("snapshot", "manual", "command"),
+        nodes=nodes,
+        edges=edges,
+        active_root=_active_root(nodes, old_kind),
+    )
+    artifact.diagnostics = recompute_diagnostics(artifact)
+    warnings = [
+        Warning(
+            code="lossy_status_mapping",
+            severity="warning",
+            message=f"old status {old!r} mapped lossily to {new!r} for kind {kind!r}",
+            node_ids=sorted(ids),
+        )
+        for (kind, old, new), ids in sorted(lossy.items())
+    ]
+    if not nodes:
+        warnings.append(Warning("empty_forest", "info",
+                                "the walk export contains no nodes"))
+    artifact.diagnostics.warnings = sorted(warnings, key=warning_sort_key)
+    return artifact
+
+
+def _turns_and_refs(node_id, step_ids, step_events, events, order):
+    turns: List[Turn] = []
+    refs: List[SourceRef] = []
+    for step_id in sorted(step_ids):
+        event_ids = step_events.get(step_id, [])
+        if not event_ids:
+            raise ValueError(f"step {step_id} owns no events — an empty turn "
+                             f"span cites nothing (R1)")
+        if len(set(event_ids)) != len(event_ids):
+            raise ValueError(f"turn {step_id} lists duplicate events")
+        # v5 turns are ordered event-id spans: normalize to stream order.
+        event_ids = sorted(event_ids, key=order.__getitem__)
+        turns.append(Turn(step_id, event_ids))
+        if event_ids:
+            first = event_ids[0]
+            refs.append(SourceRef(
+                id=f"{node_id}-t{step_id}",
+                kind="event",
+                event_id=first,
+                event_kind=events[first]["kind"],
+                payload_pointer=None,
+            ))
+    refs.sort(key=lambda r: r.id)
+    return turns, refs
+
+
+def _edge(raw: Dict[str, Any], anchor: Dict[str, SourceRef]) -> Edge:
+    eid = raw.get("edge_id")
+    if not eid or "class" not in raw or "kind" not in raw:
+        raise ValueError(f"export edge {eid!r} missing edge_id/class/kind")
+    # Unknown class/kind values flow through: they need no mapping, and the
+    # invariant checker reports them (R7: operator input is reported, not
+    # rejected). Only unmappable input raises.
+    parent_ref = anchor.get(raw["from_node"])
+    source_refs: List[SourceRef] = []
+    if parent_ref is not None:
+        source_refs.append(SourceRef(
+            id=f"{eid}-s0",
+            kind="event",
+            event_id=parent_ref.event_id,
+            event_kind=parent_ref.event_kind,
+            payload_pointer=None,
+        ))
+    return Edge(
+        id=eid,
+        from_node=raw["from_node"],
+        to_node=raw["to_node"],
+        edge_class=raw["class"],
+        kind=raw["kind"],
+        canonical_backbone=bool(raw.get("backbone")),
+        source_refs=source_refs,
+        basis=Basis("operator", raw.get("note", "") or f"operator-drawn {raw['kind']} edge",
+                    [r.id for r in source_refs]),
+        metadata={},
+    )
+
+
+def _node_basis_summary(raw: Dict[str, Any]) -> str:
+    note = raw.get("note", "")
+    return note if note else f"operator-classified {raw['kind']}"
+
+
+def _active_root(nodes: List[Node], old_kind: Dict[str, str]) -> Optional[str]:
+    roots = sorted(n.id for n in nodes if n.root_id == n.id)
+    for rid in roots:
+        if old_kind.get(rid) == "root":
+            return rid
+    return roots[0] if roots else None
