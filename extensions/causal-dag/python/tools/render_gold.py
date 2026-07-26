@@ -25,8 +25,8 @@ sys.path.insert(0, str(PKG))
 sys.path.insert(0, str(PKG / "tests"))
 
 from causal_dag import (  # noqa: E402
-    check, dumps, import_walk, render_html, to_dot, to_markdown, to_summary,
-    viewer_payload,
+    VIEWS, check, dumps, import_walk, load_definitions, render_html, to_dot,
+    to_markdown, to_summary, viewer_payload,
 )
 
 TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
@@ -76,7 +76,13 @@ def _validate_html(html: str, artifact) -> None:
         raise AssertionError("embedded payload node count diverges from the artifact")
 
 
-def _write(out: pathlib.Path, artifact, stem: str) -> None:
+def _nav_map(stem: str) -> dict:
+    """Sibling-filename links for a rendered set: each view links within its
+    own set (gold-* links to gold-*, mini-* to mini-*)."""
+    return {view: f"{stem}-{suffix}.html" for view, suffix in _VIEW_SUFFIX.items()}
+
+
+def _write(out: pathlib.Path, artifact, stem: str, definitions=None) -> None:
     def emit(name: str, text: str) -> None:
         path = out / name
         path.write_text(text)
@@ -87,8 +93,10 @@ def _write(out: pathlib.Path, artifact, stem: str) -> None:
         emit("gold.dot", to_dot(artifact))
         emit("gold.md", to_markdown(artifact))
         emit("gold.txt", to_summary(artifact))
+    nav = _nav_map(stem)
+    assert set(nav) == set(VIEWS), "nav map must cover every view"
     for view, suffix in _VIEW_SUFFIX.items():
-        html = render_html(artifact, view)
+        html = render_html(artifact, view, nav=nav, definitions=definitions)
         _validate_html(html, artifact)
         emit(f"{stem}-{suffix}.html", html)
 
@@ -96,9 +104,14 @@ def _write(out: pathlib.Path, artifact, stem: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Render gold + mini M2 artifacts")
     parser.add_argument("--out", required=True, type=pathlib.Path)
+    parser.add_argument(
+        "--definitions", type=pathlib.Path, default=None,
+        help="explicit path to a live definitions.json to embed in the pages; "
+             "omit to use the packaged codebook mirror")
     args = parser.parse_args()
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
+    definitions = load_definitions(str(args.definitions)) if args.definitions else None
 
     if not (GOLD_EXPORT.exists() and WALK_DB.exists() and EVENTS.exists()):
         print("gold data not present — cannot render the gold pages", file=sys.stderr)
@@ -112,19 +125,19 @@ def main() -> int:
             print(f"  FINDING {f.invariant}: {f.message}", file=sys.stderr)
         raise SystemExit("gold artifact is not finding-free — refusing to render")
     # Fail fast if the payload's structural invariants are broken.
-    payload = viewer_payload(gold)
+    payload = viewer_payload(gold, definitions)
     seq = {n["id"]: n["sequence"] for n in payload["nodes"]}
     for n in payload["nodes"]:
         assert n["parent"] is None or seq[n["parent"]] < n["sequence"], n["id"]
 
     print(f"gold ({len(gold.nodes)} nodes, {len(gold.edges)} edges):")
-    _write(out, gold, "gold")
+    _write(out, gold, "gold", definitions)
 
     from test_walk_import import EXPORT, STEPS, EVENTS as MINI_EVENTS
     mini = import_walk(EXPORT, STEPS, MINI_EVENTS)
     assert check(mini) == []
     print(f"mini ({len(mini.nodes)} nodes, {len(mini.edges)} edges):")
-    _write(out, mini, "mini")
+    _write(out, mini, "mini", definitions)
 
     print(f"\nwrote artifacts to {out}")
     return 0

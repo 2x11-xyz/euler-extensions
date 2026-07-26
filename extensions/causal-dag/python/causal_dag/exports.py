@@ -118,17 +118,23 @@ def _md(value: str) -> str:
             .replace("_", "\\_").replace("\r", "").replace("\n", " "))
 
 
-def _outline(art: Artifact, nid: str, depth: int, children, by_id, seen, pal, out):
-    if nid in seen or nid not in by_id:
-        return
-    seen.add(nid)
-    n = by_id[nid]
-    glyph = "○" if nid in art.roots() else pal["statuses"].get(
-        n.status, pal["statuses"]["open"])["glyph"]
-    out.append(f"{'  ' * depth}- {glyph} _{_md(n.status)}_ **{_md(n.title)}**"
-               + (f" — {_md(n.summary)}" if n.summary else ""))
-    for child in children.get(nid, []):
-        _outline(art, child, depth + 1, children, by_id, seen, pal, out)
+def _outline(root: str, children, by_id, seen, pal, roots_set, out):
+    # Iterative pre-order DFS (Finding 4): a deep valid backbone — e.g. a
+    # 1,400-node chain — must render without blowing Python's recursion limit.
+    # Children are pushed reversed so they pop in canonical (sorted) order.
+    stack = [(root, 0)]
+    while stack:
+        nid, depth = stack.pop()
+        if nid in seen or nid not in by_id:
+            continue
+        seen.add(nid)
+        n = by_id[nid]
+        glyph = "○" if nid in roots_set else pal["statuses"].get(
+            n.status, pal["statuses"]["open"])["glyph"]
+        out.append(f"{'  ' * depth}- {glyph} _{_md(n.status)}_ **{_md(n.title)}**"
+                   + (f" — {_md(n.summary)}" if n.summary else ""))
+        for child in reversed(children.get(nid, [])):
+            stack.append((child, depth + 1))
 
 
 def _status_block(nodes: List[Node]) -> List[str]:
@@ -165,8 +171,9 @@ def to_markdown(artifact: Artifact) -> str:
         out.append("_Empty graph._")
     else:
         seen: set = set()
+        roots_set = set(roots)
         for root in roots:
-            _outline(artifact, root, 0, children, by_id, seen, pal, out)
+            _outline(root, children, by_id, seen, pal, roots_set, out)
 
     def by_status(*wanted) -> List[Node]:
         return sorted((n for n in artifact.nodes if n.status in wanted),
@@ -229,15 +236,35 @@ def _bounded(value: str, max_bytes: int) -> str:
 
 
 def _longest_backbone_path(root: str, children: Dict[str, List[str]]) -> List[str]:
-    kids = children.get(root)
-    if not kids:
-        return [root]
-    best: List[str] = []
-    for child in kids:
-        candidate = _longest_backbone_path(child, children)
-        if len(candidate) > len(best) or (len(candidate) == len(best) and candidate < best):
-            best = candidate
-    return [root] + best
+    # Iterative longest-path (Finding 4): recursion crashes on a 1,400-node
+    # chain. The backbone is a forest (one parent per node), so an explicit
+    # post-order stack with per-node memoized depth is enough. Children are
+    # visited in canonical (sorted) order and the first child reaching the
+    # maximum depth wins — because distinct child ids differ at position 0,
+    # this reproduces the old lexicographic ``candidate < best`` tie-break
+    # (smallest starting id) without materializing every candidate path.
+    depth: Dict[str, int] = {}
+    nxt: Dict[str, Optional[str]] = {}
+    stack = [(root, False)]
+    while stack:
+        nid, processed = stack.pop()
+        if processed:
+            best_len, best_child = 0, None
+            for child in children.get(nid, ()):  # already sorted
+                if depth[child] > best_len:
+                    best_len, best_child = depth[child], child
+            depth[nid] = 1 + best_len
+            nxt[nid] = best_child
+        else:
+            stack.append((nid, True))
+            for child in children.get(nid, ()):
+                stack.append((child, False))
+    path: List[str] = []
+    cur: Optional[str] = root
+    while cur is not None:
+        path.append(cur)
+        cur = nxt.get(cur)
+    return path
 
 
 def _backbone_order(art: Artifact, roots: List[str],
@@ -254,7 +281,34 @@ def _backbone_order(art: Artifact, roots: List[str],
     return order
 
 
+_MIN_BUDGET = 512
+
+# Sections carrying a first-sentence reason line beside each title. The rest
+# carry a bare title. ``refuted`` is decisive negative knowledge and so earns
+# a reason, exactly like the dead-end pile (Finding 1).
+_REASON_SECTIONS = ("dead_ends", "refuted")
+
+# Survival priority, lowest first: the order whole sections are surrendered in
+# under the final hard byte guarantee, and the mirror of the entry-drop order
+# in ``fit`` (Finding 1). ``refuted`` survives longest of all.
+_SURVIVAL_ORDER = ("open", "inconclusive", "active", "blocked", "dead_ends", "refuted")
+
+
 class _Summary:
+    """The slot summary as six trim-ordered sections under a GRAPH header.
+
+    Report order (empty sections omitted): DEAD ENDS, REFUTED, BLOCKED,
+    INCONCLUSIVE, ACTIVE PATH, OPEN. Decisive negative knowledge — dead ends
+    and refuted claims — is a first-class section so it can never vanish when
+    it falls off the longest active path (Finding 1).
+    """
+
+    _HEADINGS = {
+        "dead_ends": "DEAD ENDS", "refuted": "REFUTED", "blocked": "BLOCKED",
+        "inconclusive": "INCONCLUSIVE", "active": "ACTIVE PATH", "open": "OPEN",
+    }
+    _RENDER_ORDER = ("dead_ends", "refuted", "blocked", "inconclusive", "active", "open")
+
     def __init__(self, artifact: Artifact):
         by_id = {n.id: n for n in artifact.nodes}
         roots = artifact.roots()
@@ -268,64 +322,95 @@ class _Summary:
                        f"({len(artifact.nodes)} nodes, {len(artifact.edges)} edges)")
 
         path = _longest_backbone_path(active, children) if active in by_id else []
-        titles = [_bounded(_line_text(by_id[i].title), _TITLE_BYTES)
-                  for i in path if i in by_id]
-        self.active_hidden = max(0, len(titles) - _ACTIVE_LIMIT)
-        self.active_path = titles[self.active_hidden:]
+        active_titles = [_bounded(_line_text(by_id[i].title), _TITLE_BYTES)
+                         for i in path if i in by_id]
 
         ordered = sorted(artifact.nodes, key=lambda n: (order.get(n.id, 1 << 30), n.id))
-        self.open = [_bounded(_line_text(n.title), _TITLE_BYTES)
-                     for n in ordered if n.status == "open"]
-        self.open_hidden = 0
-        self.dead_ends = [
-            [_bounded(_line_text(n.title), _TITLE_BYTES),
-             _bounded(_reason_text(n.summary), _REASON_BYTES)]
-            for n in ordered if n.status in _DEAD_END_STATUSES]
-        self.dead_hidden = 0
+
+        def titles(*statuses) -> List[str]:
+            return [_bounded(_line_text(n.title), _TITLE_BYTES)
+                    for n in ordered if n.status in statuses]
+
+        def reasons(*statuses) -> List[List[str]]:
+            return [[_bounded(_line_text(n.title), _TITLE_BYTES),
+                     _bounded(_reason_text(n.summary), _REASON_BYTES)]
+                    for n in ordered if n.status in statuses]
+
+        # entries[key] is a list (titles) or list of [title, reason] pairs;
+        # hidden[key] counts entries dropped, rendered as a "… N more" marker.
+        self.entries: Dict[str, List] = {
+            "dead_ends": reasons(*_DEAD_END_STATUSES),
+            "refuted": reasons("refuted"),
+            "blocked": titles("blocked"),
+            "inconclusive": titles("inconclusive"),
+            "active": list(active_titles[max(0, len(active_titles) - _ACTIVE_LIMIT):]),
+            "open": titles("open"),
+        }
+        self.hidden: Dict[str, int] = {k: 0 for k in self.entries}
+        self.hidden["active"] = max(0, len(active_titles) - _ACTIVE_LIMIT)
+        self.suppressed: set = set()
 
     def render(self) -> str:
         lines = [self.header]
-        self._section(lines, "DEAD ENDS",
-                      [f"- {t}" + (f" — {r}" if r else "") for t, r in self.dead_ends],
-                      self.dead_hidden)
-        self._section(lines, "ACTIVE PATH", [f"- {t}" for t in self.active_path],
-                      self.active_hidden)
-        self._section(lines, "OPEN", [f"- {t}" for t in self.open], self.open_hidden)
+        for key in self._RENDER_ORDER:
+            if key in self.suppressed:
+                continue
+            entries, hidden = self.entries[key], self.hidden[key]
+            if not entries and hidden == 0:
+                continue  # never populated — omit the heading entirely
+            lines.append("")
+            lines.append(f"{self._HEADINGS[key]}:")
+            if hidden > 0:
+                lines.append(f"… {hidden} more")
+            if key in _REASON_SECTIONS:
+                lines.extend(f"- {t}" + (f" — {r}" if r else "") for t, r in entries)
+            else:
+                lines.extend(f"- {t}" for t in entries)
         return "\n".join(lines)
 
-    @staticmethod
-    def _section(lines, heading, body, hidden):
-        lines.append("")
-        lines.append(f"{heading}:")
-        if hidden > 0:
-            lines.append(f"… {hidden} more")
-        lines.extend(body)
-
     def fit(self, budget: int) -> None:
-        # Drop OPEN first, then trim ACTIVE PATH from the front, then shorten
-        # dead-end reasons, then drop dead ends last — the discipline is that
-        # decisive negatives (dead ends) survive the longest.
-        while self._len() > budget and self.open:
-            self.open.pop()
-            self.open_hidden += 1
-        while self._len() > budget and self.active_path:
-            self.active_path.pop(0)
-            self.active_hidden += 1
+        # Entry-drop order (Finding 1), first surrendered to last: OPEN, then
+        # INCONCLUSIVE, then ACTIVE PATH trimmed from the front, then reason
+        # lines shortened, then BLOCKED, and only then the decisive pile —
+        # dead ends, and refuted last of all.
+        self._drop_from_end(budget, "open")
+        self._drop_from_end(budget, "inconclusive")
+        while self._len() > budget and self.entries["active"]:
+            self.entries["active"].pop(0)
+            self.hidden["active"] += 1
         while self._len() > budget and self._shorten_longest_reason():
             pass
-        while self._len() > budget and self.dead_ends:
-            self.dead_ends.pop()
-            self.dead_hidden += 1
+        self._drop_from_end(budget, "blocked")
+        self._drop_from_end(budget, "dead_ends")
+        self._drop_from_end(budget, "refuted")
+        self._hard_fit(budget)
+
+    def _drop_from_end(self, budget: int, key: str) -> None:
+        while self._len() > budget and self.entries[key]:
+            self.entries[key].pop()
+            self.hidden[key] += 1
+
+    def _hard_fit(self, budget: int) -> None:
+        # Final hard guarantee (Finding 6): entry-dropping leaves the fixed
+        # headings and "… N more" markers standing, which can still overrun a
+        # tiny budget. Surrender whole sections from the lowest survival
+        # priority up until it fits. The GRAPH header alone always fits within
+        # the 512-byte minimum, so this terminates below budget.
+        for key in _SURVIVAL_ORDER:
+            if self._len() <= budget:
+                return
+            self.suppressed.add(key)
 
     def _shorten_longest_reason(self) -> bool:
-        idx, longest = -1, 0
-        for i, (_, reason) in enumerate(self.dead_ends):
-            if len(reason) > longest:
-                idx, longest = i, len(reason)
-        if idx < 0:
+        target_list, idx, longest = None, -1, 0
+        for key in _REASON_SECTIONS:
+            for i, (_, reason) in enumerate(self.entries[key]):
+                if len(reason) > longest:
+                    target_list, idx, longest = self.entries[key], i, len(reason)
+        if target_list is None or longest == 0:
             return False
         target = longest - max(24, longest) // 2
-        self.dead_ends[idx][1] = _bounded(self.dead_ends[idx][1], max(0, target))
+        target_list[idx][1] = _bounded(target_list[idx][1], max(0, target))
         return True
 
     def _len(self) -> int:
@@ -333,7 +418,16 @@ class _Summary:
 
 
 def to_summary(artifact: Artifact, budget: int = 4096) -> str:
-    """The context-slot text, fit to ``budget`` bytes with dead ends surviving longest."""
+    """The context-slot text, fit to ``budget`` bytes with the decisive pile
+    surviving longest.
+
+    ``budget`` has a documented 512-byte floor (Finding 6): below it the
+    fixed headings alone cannot be honoured, so a smaller value raises
+    ``ValueError``. At any accepted budget the returned text is guaranteed
+    ``<= budget`` bytes.
+    """
+    if budget < _MIN_BUDGET:
+        raise ValueError("summary budget below the 512-byte minimum")
     summary = _Summary(artifact)
     summary.fit(budget)
     return summary.render()

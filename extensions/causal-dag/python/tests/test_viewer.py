@@ -8,7 +8,9 @@ arc colour, and a degraded artifact must still render to a self-contained page.
 """
 
 import json
+import os
 import pathlib
+import re
 import sys
 import unittest
 
@@ -118,44 +120,66 @@ class PayloadInvariantsTest(unittest.TestCase):
         self.assertIn("refutation", defs["edge_kinds"]["annotation"])
 
 
-class DefinitionsLoaderTest(unittest.TestCase):
+class DefinitionsInputTest(unittest.TestCase):
+    """Definitions are an explicit input: no environment reaches the payload."""
+
+    _CUSTOM = {"meta": {}, "node_kinds": {"question": "EXPLICIT DEF"},
+               "statuses": {}, "edge_kinds": {"structural": {}, "annotation": {}}}
+
     def test_loader_returns_a_private_copy_of_the_embedded_codebook(self):
         a, b = load_definitions(), load_definitions()
         self.assertIsNot(a, b)  # mutating one render's copy can't taint another
         self.assertEqual(a, b)
 
-    def test_env_override_is_used_when_readable(self):
+    def test_explicit_path_is_read_by_the_loader(self):
         import json
-        import os
         import tempfile
-        custom = {"meta": {}, "node_kinds": {"question": "OVERRIDE DEF"},
-                  "statuses": {}, "edge_kinds": {"structural": {}, "annotation": {}}}
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-            json.dump(custom, fh)
+            json.dump(self._CUSTOM, fh)
             path = fh.name
-        old = os.environ.get("CAUSAL_DAG_DEFINITIONS")
-        os.environ["CAUSAL_DAG_DEFINITIONS"] = path
         try:
-            self.assertEqual(load_definitions()["node_kinds"]["question"],
-                             "OVERRIDE DEF")
+            self.assertEqual(load_definitions(path)["node_kinds"]["question"],
+                             "EXPLICIT DEF")
         finally:
-            if old is None:
-                del os.environ["CAUSAL_DAG_DEFINITIONS"]
-            else:
-                os.environ["CAUSAL_DAG_DEFINITIONS"] = old
             os.unlink(path)
 
-    def test_unreadable_override_falls_back_to_the_embedded_mirror(self):
-        import os
+    def test_payload_ignores_the_environment(self):
+        # A bogus env var must not change the payload: the old CAUSAL_DAG_DEFINITIONS
+        # lookup is gone from the payload/render path entirely.
+        art = _arc_artifact()
+        baseline = viewer_payload(art)
         old = os.environ.get("CAUSAL_DAG_DEFINITIONS")
         os.environ["CAUSAL_DAG_DEFINITIONS"] = "/nonexistent/definitions.json"
         try:
-            self.assertIn("node_kinds", load_definitions())
+            self.assertEqual(viewer_payload(art), baseline)
         finally:
             if old is None:
                 del os.environ["CAUSAL_DAG_DEFINITIONS"]
             else:
                 os.environ["CAUSAL_DAG_DEFINITIONS"] = old
+
+    def test_same_artifact_and_args_give_a_byte_identical_payload(self):
+        import json
+        art = _arc_artifact()
+        old = os.environ.get("CAUSAL_DAG_DEFINITIONS")
+        os.environ["CAUSAL_DAG_DEFINITIONS"] = "/some/other/definitions.json"
+        try:
+            a = json.dumps(viewer_payload(art), sort_keys=True)
+        finally:
+            if old is None:
+                del os.environ["CAUSAL_DAG_DEFINITIONS"]
+            else:
+                os.environ["CAUSAL_DAG_DEFINITIONS"] = old
+        b = json.dumps(viewer_payload(art), sort_keys=True)
+        self.assertEqual(a, b)
+
+    def test_explicit_definitions_argument_is_honored(self):
+        p = viewer_payload(_arc_artifact(), definitions=self._CUSTOM)
+        self.assertEqual(p["definitions"]["node_kinds"]["question"], "EXPLICIT DEF")
+
+    def test_none_definitions_embeds_the_packaged_mirror(self):
+        p = viewer_payload(_arc_artifact())
+        self.assertEqual(p["definitions"], load_definitions())
 
 
 class PaletteCompletenessTest(unittest.TestCase):
@@ -227,6 +251,47 @@ class RenderTest(unittest.TestCase):
     def test_unknown_view_is_an_error(self):
         with self.assertRaises(ValueError):
             render_html(build_degraded(), "isometric")
+
+    def _nav(self, stem):
+        suffix = {"top-down": "top-down", "indented": "indented",
+                  "3d": "3d", "3-5d": "3-5d"}
+        return {v: f"{stem}-{s}.html" for v, s in suffix.items()}
+
+    def test_nav_map_renders_plain_sibling_hrefs_and_no_postmessage(self):
+        art = _arc_artifact()
+        nav = self._nav("mini")
+        for view in VIEWS:
+            html = render_html(art, view, nav=nav)
+            # every sibling filename is linked as a plain href
+            for filename in nav.values():
+                self.assertIn(f'href="{filename}"', html)
+            # the archived postMessage/dagNav bridge is gone
+            self.assertNotIn("dagNav", html)
+            # no unresolved href tokens or hidden-nav style leak through
+            self.assertNotIn("__EULER_NAV", html)
+            self.assertNotIn(".dag-nav{display:none", html)
+
+    def test_nav_omitted_hides_the_nav_ui(self):
+        art = _arc_artifact()
+        for view in VIEWS:
+            html = render_html(art, view)  # no nav map
+            # the two view-switch dropdowns (class dag-nav) are hidden outright
+            self.assertIn(".dag-nav{display:none !important;}", html)
+            self.assertNotIn("dagNav", html)
+            self.assertNotIn("__EULER_NAV", html)
+
+    def test_detail_card_content_scrolls_and_is_not_clip_hidden(self):
+        art = _arc_artifact()
+        for view in VIEWS:
+            html = render_html(art, view, nav=self._nav("mini"))
+            # the card scrolls within its bounded height ...
+            self.assertRegex(html, r"\.dag-card\s*\{[^}]*overflow-y:\s*auto")
+            # ... and no dag-card rule clips its content with overflow:hidden
+            for rule in re.findall(r"\.dag-card\s*\{[^}]*\}", html):
+                self.assertNotIn("overflow:hidden", rule)
+            # the card element's own inline style never hidden-clips either
+            for style in re.findall(r'class="dag-card"[^>]*style="([^"]*)"', html):
+                self.assertNotIn("overflow:hidden", style)
 
 
 if __name__ == "__main__":

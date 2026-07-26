@@ -3,19 +3,25 @@
 ``viewer_payload`` folds each node's single backbone parent in, walks the
 backbone from the active/first root to assign a parent-before-child
 ``sequence`` (tie-broken by chronological occurrence — the node's first turn),
-and turns every non-backbone edge into a cross-arc. ``render_html`` inlines the
-archived viewer shells, ``runtime.js``, the bundled React UMD builds and the v5
-palette around that payload to produce one offline page per view — the same
-marker-substitution assembly the archived crate's ``export/html.rs`` used, kept
-verbatim so the four-view contract survives (chronology drives only 3.5D, roots
-are always gold, 2D shows bare glyphs, constellations show dot-only legends).
+and turns every non-backbone edge into a cross-arc. It takes the human-facing
+codebook as an explicit ``definitions`` argument (the packaged mirror by
+default) so the same artifact yields a byte-identical payload in every
+environment — no hidden env lookup. ``render_html`` inlines the archived viewer
+shells, ``runtime.js``, the bundled React UMD builds and the v5 palette around
+that payload to produce one offline page per view — the same marker-substitution
+assembly the archived crate's ``export/html.rs`` used, kept verbatim so the
+four-view contract survives (chronology drives only 3.5D, roots are always gold,
+2D shows bare glyphs, constellations show dot-only legends). A page's view-nav
+links are rewritten to plain sibling-file hrefs when ``render_html`` is handed a
+``nav`` map, and hidden entirely otherwise, so a standalone export navigates by
+ordinary browser navigation rather than an unhandled ``postMessage``.
 """
 
 from __future__ import annotations
 
 import copy
+import html
 import json
-import os
 import pathlib
 from typing import Any, Dict, List, Optional
 
@@ -26,12 +32,6 @@ VIEWER_SCHEMA = "euler.causal_dag.viewer.v5"
 
 _VIEWER_DIR = pathlib.Path(__file__).resolve().parents[2] / "viewer"
 _PALETTE_PATH = _VIEWER_DIR / "palette-v5.json"
-
-# The shared codebook (2x11-xyz/causal-dag-annotation-tool/definitions.json) is
-# the single source of truth; ``CAUSAL_DAG_DEFINITIONS`` points a render at the
-# live file, otherwise the render carries the embedded mirror so it works with
-# no private checkout.
-_DEFINITIONS_ENV = "CAUSAL_DAG_DEFINITIONS"
 
 # view id -> shell filename.
 VIEWS = {
@@ -44,6 +44,10 @@ VIEWS = {
 _RUNTIME_MARKER = "<!--__EULER_RUNTIME__-->"
 _DAG_MARKER = "/*__EULER_DAG__*/"
 _PALETTE_MARKER = "/*__EULER_PALETTE__*/"
+_NAV_MARKER = "<!--__EULER_NAV__-->"
+# Injected in place of the nav marker when a page is exported without a nav map:
+# the two view-switch dropdowns carry class ``dag-nav`` and are hidden outright.
+_NAV_HIDE_STYLE = "<style>.dag-nav{display:none !important;}</style>"
 
 _CSP = ('<meta http-equiv="Content-Security-Policy" content="default-src '
         "'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src "
@@ -56,20 +60,18 @@ def load_palette() -> Dict[str, Any]:
     return json.loads(_PALETTE_PATH.read_text())
 
 
-def load_definitions() -> Dict[str, Any]:
+def load_definitions(path: Optional[str] = None) -> Dict[str, Any]:
     """The one codebook (node-kind/status/edge-kind wording), for the detail cards.
 
-    Reads the live ``definitions.json`` when ``CAUSAL_DAG_DEFINITIONS`` names a
-    readable copy; otherwise returns the package's embedded mirror so offline
-    renders still carry it. Either way the result is a private copy — the caller
-    embeds it into the untrusted payload.
+    With no ``path`` this returns a private copy of the package's embedded mirror
+    so offline renders always carry it. Pass an explicit ``path`` to read a live
+    ``definitions.json`` instead — an explicit, opt-in override with no hidden
+    environment lookup; a missing or malformed file raises rather than silently
+    degrading. Either way the result is a private structure the caller embeds
+    into the untrusted payload.
     """
-    override = os.environ.get(_DEFINITIONS_ENV)
-    if override:
-        try:
-            return json.loads(pathlib.Path(override).read_text())
-        except (OSError, ValueError):
-            pass  # fall back to the embedded mirror rather than fail a render
+    if path is not None:
+        return json.loads(pathlib.Path(path).read_text())
     return copy.deepcopy(DEFINITIONS)
 
 
@@ -146,8 +148,15 @@ def _graph_title(artifact: Artifact, by_id: Dict[str, Node], roots: List[str]) -
     return f"Causal DAG · {artifact.session.id[:8]}"
 
 
-def viewer_payload(artifact: Artifact) -> Dict[str, Any]:
-    """Fold the backbone into per-node parent/sequence; non-backbone edges become arcs."""
+def viewer_payload(artifact: Artifact,
+                   definitions: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Fold the backbone into per-node parent/sequence; non-backbone edges become arcs.
+
+    ``definitions`` is the codebook embedded in the page's detail cards; ``None``
+    means the packaged mirror (:func:`load_definitions`). Because it is an
+    explicit input with no environment fallback, the same artifact and arguments
+    always produce the same payload.
+    """
     by_id = {n.id: n for n in artifact.nodes}
     roots = artifact.roots()
     root_set = set(roots)
@@ -191,7 +200,7 @@ def viewer_payload(artifact: Artifact) -> Dict[str, Any]:
         "roots": roots,
         "nodes": nodes,
         "arcs": arcs,
-        "definitions": load_definitions(),
+        "definitions": load_definitions() if definitions is None else definitions,
     }
 
 
@@ -205,14 +214,39 @@ def _script_safe_json(text: str) -> str:
             .replace("\u2029", "\\u2029"))
 
 
-def render_html(artifact: Artifact, view: str) -> str:
-    """Assemble one self-contained page for ``view`` (a key of ``VIEWS``)."""
+def render_html(artifact: Artifact, view: str,
+                nav: Optional[Dict[str, str]] = None,
+                definitions: Optional[Dict[str, Any]] = None) -> str:
+    """Assemble one self-contained page for ``view`` (a key of ``VIEWS``).
+
+    ``nav`` maps view keys (the keys of :data:`VIEWS`) to the sibling filenames
+    the in-page view switcher should link to. When given, the nav links become
+    plain ``<a href>`` targets and navigation is ordinary browser navigation.
+    When ``None``, the whole nav UI is hidden — a lone page has nowhere to link.
+    Either way the archived ``postMessage``/``dagNav`` bridge is dropped, so a
+    standalone page never fires an unhandled cross-frame message.
+
+    ``definitions`` is threaded to :func:`viewer_payload`; ``None`` embeds the
+    packaged codebook mirror.
+    """
     if view not in VIEWS:
         raise ValueError(f"unknown view {view!r}; expected one of {sorted(VIEWS)}")
     shell = _read_asset(VIEWS[view])
-    for marker in (_RUNTIME_MARKER, _DAG_MARKER, _PALETTE_MARKER):
+    for marker in (_RUNTIME_MARKER, _DAG_MARKER, _PALETTE_MARKER, _NAV_MARKER):
         if shell.count(marker) != 1:
             raise ValueError(f"shell {VIEWS[view]} has an invalid {marker} injection point")
+
+    # View navigation: rewrite each per-view href token to its sibling filename
+    # (or drop the nav UI when there are no siblings to link to).
+    if nav is None:
+        shell = shell.replace(_NAV_MARKER, _NAV_HIDE_STYLE)
+        for key in VIEWS:
+            shell = shell.replace(f"__EULER_NAV_{key}__", "#")
+    else:
+        shell = shell.replace(_NAV_MARKER, "")
+        for key in VIEWS:
+            href = html.escape(nav.get(key, "#"), quote=True)
+            shell = shell.replace(f"__EULER_NAV_{key}__", href)
 
     react = _read_asset("react.production.min.js")
     react_dom = _read_asset("react-dom.production.min.js")
@@ -221,7 +255,7 @@ def render_html(artifact: Artifact, view: str) -> str:
         f"{_CSP}\n<script>\n{react}\n</script>\n<script>\n{react_dom}\n"
         f"</script>\n<script>\n{runtime}\n</script>")
 
-    dag_json = _script_safe_json(json.dumps(viewer_payload(artifact),
+    dag_json = _script_safe_json(json.dumps(viewer_payload(artifact, definitions),
                                             ensure_ascii=False, sort_keys=True))
     palette_json = _script_safe_json(_PALETTE_PATH.read_text().strip())
 

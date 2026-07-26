@@ -4,14 +4,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!--__EULER_RUNTIME__-->
 
-<script>
-document.addEventListener('click', function (e) {
-  var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
-  if (!a) return;
-  var h = decodeURIComponent(a.getAttribute('href') || '').split('#')[0];
-  if (h.slice(-8) === '.dc.html') { e.preventDefault(); parent.postMessage({ dagNav: h }, '*'); }
-});
-</script>
+<!--__EULER_NAV__-->
 </head>
 <body>
 <x-dc>
@@ -21,15 +14,21 @@ document.addEventListener('click', function (e) {
     .dag-toolbar { align-items:stretch !important; }
     .dag-toolbar > div { height:30px; }
     .dag-toolbar > button, .dag-toolbar > div > button { height:30px; box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; line-height:1; }
-    @media (max-width: 600px) {
+    /* the detail card scrolls within a bounded height rather than clipping its
+       text; the hint + legend stack in one bottom corner (dag-footnote) so they
+       never overlap each other or the card. */
+    .dag-card { max-height:42vh; overflow-y:auto; pointer-events:auto !important; overscroll-behavior:contain; }
+    .dag-hint { max-width:340px; }
+    @media (max-width: 820px) {
       .dag-heading { top:14px !important; left:14px !important; right:14px !important; }
       .dag-heading > div { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
       .dag-toolbar { top:58px !important; left:14px !important; right:auto !important; gap:5px !important; }
       .dag-menu-3d { left:0 !important; right:auto !important; }
       .dag-overlay { top:96px !important; left:14px !important; right:14px !important; width:auto !important; box-sizing:border-box; }
-      .dag-card { left:14px !important; right:14px !important; bottom:74px !important; width:auto !important; max-height:38vh; overflow:hidden; box-sizing:border-box; }
+      .dag-card { left:14px !important; right:14px !important; bottom:74px !important; width:auto !important; max-height:38vh; overflow-y:auto; box-sizing:border-box; }
       .dag-hint { display:none !important; }
-      .dag-legend { left:14px !important; right:14px !important; bottom:10px !important; gap:4px 9px !important; flex-wrap:wrap; font-size:9px !important; line-height:1.1; }
+      .dag-footnote { left:14px !important; right:14px !important; bottom:10px !important; align-items:flex-start !important; }
+      .dag-legend { gap:4px 9px !important; flex-wrap:wrap; font-size:9px !important; line-height:1.1; }
     }
   </style>
 </helmet>
@@ -74,21 +73,21 @@ document.addEventListener('click', function (e) {
 
   <div class="dag-toolbar" style="position:absolute; top:22px; right:26px; display:flex; gap:8px; align-items:flex-start;">
     <button onclick="{{ toggleInfo }}" style="background:{{ infoBg }}; color:{{ th.sub }}; border:1px solid {{ th.border }}; padding:6px 10px; font-size:11px; font-family:inherit; cursor:pointer;">ⓘ</button>
-    <div style="position:relative;">
+    <div class="dag-nav" style="position:relative;">
       <button onclick="{{ toggle2d }}" style="background:{{ nav2dBg }}; color:{{ th.text }}; border:1px solid {{ th.border }}; padding:6px 11px; font-size:11px; font-family:inherit; cursor:pointer;">2D ▾</button>
       <sc-if value="{{ nav2d }}" hint-placeholder-val="{{ false }}">
         <div style="position:absolute; top:34px; left:0; min-width:158px; display:flex; flex-direction:column; background:{{ th.menuBg }}; border:1px solid {{ th.border }}; backdrop-filter:blur(8px);">
-          <a href="2D%20Indented%20Spine.dc.html" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">indented spine</a>
-          <a href="2D%20Top-Down.dc.html" style="display:block; padding:9px 13px; color:{{ th.text }}; text-decoration:none; font-size:11px; white-space:nowrap;">top-down</a>
+          <a href="__EULER_NAV_indented__" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">indented spine</a>
+          <a href="__EULER_NAV_top-down__" style="display:block; padding:9px 13px; color:{{ th.text }}; text-decoration:none; font-size:11px; white-space:nowrap;">top-down</a>
         </div>
       </sc-if>
     </div>
-    <div style="position:relative;">
+    <div class="dag-nav" style="position:relative;">
       <button onclick="{{ toggle3d }}" style="background:{{ nav3dBg }}; color:{{ th.sub }}; border:1px solid {{ th.border }}; padding:6px 11px; font-size:11px; font-family:inherit; cursor:pointer;">3D ▾</button>
       <sc-if value="{{ nav3d }}" hint-placeholder-val="{{ false }}">
         <div class="dag-menu-3d" style="position:absolute; top:34px; right:0; min-width:158px; display:flex; flex-direction:column; background:{{ th.menuBg }}; border:1px solid {{ th.border }}; backdrop-filter:blur(8px);">
-          <a href="Constellation%203D.dc.html" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">3D · constellation</a>
-          <a href="Constellation%203.5D.dc.html" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">3.5D · sequence axis</a>
+          <a href="__EULER_NAV_3d__" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">3D · constellation</a>
+          <a href="__EULER_NAV_3-5d__" style="display:block; padding:9px 13px; color:{{ th.sub }}; text-decoration:none; font-size:11px; white-space:nowrap;" style-hover="color:{{ th.text }};">3.5D · sequence axis</a>
         </div>
       </sc-if>
     </div>
@@ -153,15 +152,16 @@ document.addEventListener('click', function (e) {
     </div>
   </sc-if>
 
-  <div class="dag-hint" style="position:absolute; bottom:42px; right:26px; color:{{ th.hint }}; font-size:11px; pointer-events:none; white-space:nowrap;">hover a glyph or a dashed arc · drag or scroll to pan · pinch or ctrl+scroll to zoom</div>
-
-  <div class="dag-legend" style="position:absolute; bottom:18px; right:26px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; font-size:11px; color:{{ th.sub }}; pointer-events:none;">
-    <div style="display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:14px;">
-      <sc-for list="{{ legend }}" as="g" hint-placeholder-count="0">
-        <span style="display:flex; align-items:center; gap:6px;"><span style="color:{{ g.col }}; opacity:{{ g.op }};">{{ g.glyph }}</span>{{ g.label }}</span>
-      </sc-for>
+  <div class="dag-footnote" style="position:absolute; bottom:18px; right:26px; display:flex; flex-direction:column; align-items:flex-end; gap:9px; pointer-events:none;">
+    <div class="dag-hint" style="color:{{ th.hint }}; font-size:11px; text-align:right;">hover a glyph or a dashed arc · drag or scroll to pan · pinch or ctrl+scroll to zoom</div>
+    <div class="dag-legend" style="display:flex; flex-direction:column; align-items:flex-end; gap:6px; font-size:11px; color:{{ th.sub }};">
+      <div style="display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:14px;">
+        <sc-for list="{{ legend }}" as="g" hint-placeholder-count="0">
+          <span style="display:flex; align-items:center; gap:6px;"><span style="color:{{ g.col }}; opacity:{{ g.op }};">{{ g.glyph }}</span>{{ g.label }}</span>
+        </sc-for>
+      </div>
+      <div style="max-width:340px; text-align:right; font-size:9.5px; line-height:1.4; color:{{ th.faint }};">Arrows point in the direction of influence. Backbone = process (forward in time); arcs = influence that may reach back.</div>
     </div>
-    <div style="max-width:340px; text-align:right; font-size:9.5px; line-height:1.4; color:{{ th.faint }};">Arrows point in the direction of influence. Backbone = process (forward in time); arcs = influence that may reach back.</div>
   </div>
 </div>
 

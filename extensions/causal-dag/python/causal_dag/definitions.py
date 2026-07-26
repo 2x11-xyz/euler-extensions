@@ -4,8 +4,8 @@ The single source of truth for the human-facing definitions is the annotation
 tool's ``definitions.json`` (2x11-xyz/causal-dag-annotation-tool). This module
 mirrors it **verbatim** (codebook version 3) so a self-contained viewer render
 carries the one codebook even without the private checkout - keep the two in
-sync. ``viewer.load_definitions`` prefers the live file (via the
-``CAUSAL_DAG_DEFINITIONS`` env override) and falls back to this copy.
+sync. ``viewer.load_definitions(path)`` reads an explicit codebook file;
+without a path, this copy is the single, environment-independent default.
 
 Since codebook v3 the definitions carry both the annotation tool's display
 vocabulary and the v5-native kinds and statuses (``question``,
