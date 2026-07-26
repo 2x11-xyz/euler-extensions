@@ -18,11 +18,41 @@ from test_walk_import import EXPORT, STEPS, EVENTS  # noqa: E402
 from test_degraded import build_degraded  # noqa: E402
 
 from causal_dag import (  # noqa: E402
-    VIEWER_SCHEMA, VIEWS, import_walk, load_palette, render_html, viewer_payload,
+    VIEWER_SCHEMA, VIEWS, import_walk, load_definitions, load_palette,
+    render_html, viewer_payload,
 )
 from causal_dag.schema import (  # noqa: E402
-    EDGE_KINDS_BY_CLASS, KINDS, STATUS_BY_KIND,
+    Artifact, Basis, Construction, Edge, EDGE_KINDS_BY_CLASS, EventRange, KINDS,
+    Node, Projection, Session, STATUS_BY_KIND, Turn,
 )
+
+
+def _arc_artifact() -> Artifact:
+    """A goal, a refuted claim under it, and a source-backed cross-arc with a note."""
+    def basis(summary):
+        return Basis("operator", summary)
+
+    nodes = [
+        Node("n-goal", "n-goal", "question", "open", "The goal",
+             "Why we are here. A second sentence for the summary.",
+             [Turn(0, ["e0"])], [], basis("op"), {}),
+        Node("n-claim", "n-goal", "claim", "refuted", "Closed form exists",
+             "Counterexample at k=5 falsifies it.", [Turn(1, ["e1"]), Turn(2, ["e2"])],
+             [], basis("op"), {}),
+    ]
+    edges = [
+        Edge("e-1", "n-goal", "n-claim", "structural", "decomposition", True,
+             [], basis("op"), {}),
+        Edge("e-2", "n-claim", "n-goal", "annotation", "refutation", False,
+             [], basis("the k=5 counterexample refutes the goal's premise"), {}),
+    ]
+    return Artifact(
+        generated_at="2026-07-26T00:00:00Z",
+        session=Session("s-arc", EventRange("e0", "e2", True)),
+        projection=Projection("causal-dag", "e2", "bounded_provenance_query", False),
+        construction=Construction("snapshot", "manual", "command"),
+        nodes=nodes, edges=edges, active_root="n-goal",
+    )
 
 
 def _all_statuses():
@@ -61,6 +91,71 @@ class PayloadInvariantsTest(unittest.TestCase):
         p = viewer_payload(import_walk(EXPORT, STEPS, EVENTS))
         goal = next(n for n in p["nodes"] if n["id"] == "n-goal")
         self.assertEqual(goal["occurrence"], 0)
+
+    def test_nodes_carry_summary_and_owned_turn_span(self):
+        p = viewer_payload(_arc_artifact())
+        claim = next(n for n in p["nodes"] if n["id"] == "n-claim")
+        self.assertIn("Counterexample at k=5", claim["summary"])
+        # two owned turns collapse to a compact span for the detail card
+        self.assertEqual(claim["turns"], "1-2")
+        goal = next(n for n in p["nodes"] if n["id"] == "n-goal")
+        self.assertEqual(goal["turns"], "0")
+
+    def test_arcs_carry_their_edge_note(self):
+        p = viewer_payload(_arc_artifact())
+        arc = next(a for a in p["arcs"] if a["id"] == "e-2")
+        self.assertEqual(arc["kind"], "refutation")
+        self.assertEqual(arc["class"], "annotation")
+        self.assertIn("k=5 counterexample refutes", arc["note"])
+
+    def test_payload_embeds_the_definitions_codebook(self):
+        p = viewer_payload(_arc_artifact())
+        defs = p["definitions"]
+        for section in ("node_kinds", "statuses", "edge_kinds"):
+            self.assertIn(section, defs)
+        # the codebook mirror is complete enough to explain the cards' vocabulary
+        self.assertIn("dead_end", defs["statuses"])
+        self.assertIn("refutation", defs["edge_kinds"]["annotation"])
+
+
+class DefinitionsLoaderTest(unittest.TestCase):
+    def test_loader_returns_a_private_copy_of_the_embedded_codebook(self):
+        a, b = load_definitions(), load_definitions()
+        self.assertIsNot(a, b)  # mutating one render's copy can't taint another
+        self.assertEqual(a, b)
+
+    def test_env_override_is_used_when_readable(self):
+        import json
+        import os
+        import tempfile
+        custom = {"meta": {}, "node_kinds": {"question": "OVERRIDE DEF"},
+                  "statuses": {}, "edge_kinds": {"structural": {}, "annotation": {}}}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            json.dump(custom, fh)
+            path = fh.name
+        old = os.environ.get("CAUSAL_DAG_DEFINITIONS")
+        os.environ["CAUSAL_DAG_DEFINITIONS"] = path
+        try:
+            self.assertEqual(load_definitions()["node_kinds"]["question"],
+                             "OVERRIDE DEF")
+        finally:
+            if old is None:
+                del os.environ["CAUSAL_DAG_DEFINITIONS"]
+            else:
+                os.environ["CAUSAL_DAG_DEFINITIONS"] = old
+            os.unlink(path)
+
+    def test_unreadable_override_falls_back_to_the_embedded_mirror(self):
+        import os
+        old = os.environ.get("CAUSAL_DAG_DEFINITIONS")
+        os.environ["CAUSAL_DAG_DEFINITIONS"] = "/nonexistent/definitions.json"
+        try:
+            self.assertIn("node_kinds", load_definitions())
+        finally:
+            if old is None:
+                del os.environ["CAUSAL_DAG_DEFINITIONS"]
+            else:
+                os.environ["CAUSAL_DAG_DEFINITIONS"] = old
 
 
 class PaletteCompletenessTest(unittest.TestCase):
@@ -113,6 +208,21 @@ class RenderTest(unittest.TestCase):
     def test_degraded_artifact_renders(self):
         html = render_html(build_degraded(), "3-5d")
         self.assertIn("const __DAG = ", html)
+
+    def test_every_view_carries_definitions_and_arc_notes_in_the_page(self):
+        art = _arc_artifact()
+        # a stable codebook line the node detail card looks up (dead-end status)
+        dead_end_def = load_definitions()["statuses"]["dead_end"]
+        for view in VIEWS:
+            html = render_html(art, view)
+            start = html.index("const __DAG = ") + len("const __DAG = ")
+            payload, _ = json.JSONDecoder().raw_decode(html, start)
+            self.assertIn("dead_end", payload["definitions"]["statuses"])
+            self.assertTrue(any(a["note"] for a in payload["arcs"]))
+            # the definition text and the influence-legend line reach the page
+            self.assertIn(dead_end_def, html)
+            self.assertIn("Arrows point in the direction of influence", html)
+            self.assertIn("Counterexample at k=5", html)  # node summary plumbed
 
     def test_unknown_view_is_an_error(self):
         with self.assertRaises(ValueError):

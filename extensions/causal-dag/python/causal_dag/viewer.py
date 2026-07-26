@@ -13,16 +13,25 @@ are always gold, 2D shows bare glyphs, constellations show dot-only legends).
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 import pathlib
 from typing import Any, Dict, List, Optional
 
+from .definitions import DEFINITIONS
 from .schema import Artifact, Node
 
 VIEWER_SCHEMA = "euler.causal_dag.viewer.v5"
 
 _VIEWER_DIR = pathlib.Path(__file__).resolve().parents[2] / "viewer"
 _PALETTE_PATH = _VIEWER_DIR / "palette-v5.json"
+
+# The shared codebook (2x11-xyz/causal-dag-annotation-tool/definitions.json) is
+# the single source of truth; ``CAUSAL_DAG_DEFINITIONS`` points a render at the
+# live file, otherwise the render carries the embedded mirror so it works with
+# no private checkout.
+_DEFINITIONS_ENV = "CAUSAL_DAG_DEFINITIONS"
 
 # view id -> shell filename.
 VIEWS = {
@@ -45,6 +54,40 @@ _CSP = ('<meta http-equiv="Content-Security-Policy" content="default-src '
 def load_palette() -> Dict[str, Any]:
     """The canonical v5 palette tokens (day/night hexes, glyphs, arc colours)."""
     return json.loads(_PALETTE_PATH.read_text())
+
+
+def load_definitions() -> Dict[str, Any]:
+    """The one codebook (node-kind/status/edge-kind wording), for the detail cards.
+
+    Reads the live ``definitions.json`` when ``CAUSAL_DAG_DEFINITIONS`` names a
+    readable copy; otherwise returns the package's embedded mirror so offline
+    renders still carry it. Either way the result is a private copy — the caller
+    embeds it into the untrusted payload.
+    """
+    override = os.environ.get(_DEFINITIONS_ENV)
+    if override:
+        try:
+            return json.loads(pathlib.Path(override).read_text())
+        except (OSError, ValueError):
+            pass  # fall back to the embedded mirror rather than fail a render
+    return copy.deepcopy(DEFINITIONS)
+
+
+def _turn_span(node: Node) -> str:
+    """The node's owned turns as a compact label ("3", "5-7", "1, 4-5", "—")."""
+    steps = sorted(t.step_id for t in node.turns)
+    if not steps:
+        return "—"
+    parts: List[str] = []
+    start = prev = steps[0]
+    for s in steps[1:]:
+        if s == prev + 1:
+            prev = s
+            continue
+        parts.append(str(start) if start == prev else f"{start}-{prev}")
+        start = prev = s
+    parts.append(str(start) if start == prev else f"{start}-{prev}")
+    return ", ".join(parts)
 
 
 def _short_event(event_id: str) -> str:
@@ -119,6 +162,7 @@ def viewer_payload(artifact: Artifact) -> Dict[str, Any]:
             "parent": parent.get(n.id),
             "sequence": sequence[n.id],
             "occurrence": occ[n.id],
+            "turns": _turn_span(n),
             "isRoot": n.id in root_set,
             "status": n.status,
             "kind": n.kind,
@@ -147,6 +191,7 @@ def viewer_payload(artifact: Artifact) -> Dict[str, Any]:
         "roots": roots,
         "nodes": nodes,
         "arcs": arcs,
+        "definitions": load_definitions(),
     }
 
 

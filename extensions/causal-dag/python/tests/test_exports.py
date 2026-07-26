@@ -135,6 +135,13 @@ class MarkdownTest(unittest.TestCase):
         # the refuted claim must not appear in the dead-ends block
         self.assertNotIn("Closed form exists", md[dead:decided])
 
+    def test_cross_arc_note_is_carried_into_markdown(self):
+        art = _claim_artifact()
+        art.edges[-1].basis = Basis("operator", "shares the k=5 counterexample")
+        md = to_markdown(art)
+        arcs = md[md.index("## Cross-arcs"):]
+        self.assertIn("shares the k=5 counterexample", arcs)
+
 
 class SummaryTest(unittest.TestCase):
     def test_header_and_sections(self):
@@ -153,6 +160,16 @@ class SummaryTest(unittest.TestCase):
         self.assertNotIn("Open question number", fit)
         self.assertIn("DEAD ENDS:", fit)
         self.assertIn("Dead end attempt", fit)
+
+    def test_dead_end_reason_is_the_first_sentence_of_the_summary(self):
+        # The dead-end reason slot takes only the first sentence of the node
+        # summary (≤360 bytes), not the whole thing.
+        art = _claim_artifact()
+        art.nodes[2].summary = ("Timed out at n=40. A long second sentence that "
+                                "must not leak into the reason slot at all.")
+        summary = to_summary(art, budget=100000)
+        self.assertIn("Timed out at n=40.", summary)
+        self.assertNotIn("must not leak", summary)
 
     def test_trim_order_active_path_goes_before_dead_ends(self):
         # A budget tight enough to force ACTIVE PATH trimming still keeps a

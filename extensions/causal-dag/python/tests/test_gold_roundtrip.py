@@ -21,7 +21,7 @@ MANIFEST = pathlib.Path(__file__).resolve().parent / "gold_structure.json"
 DIGEST = pathlib.Path(__file__).resolve().parent / "gold_digest.txt"
 
 TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
-EXPORT = TOOL / "exports" / "01KXBZY130DSAMPT8C72558Z4J-gold-20260724.json"
+EXPORT = TOOL / "exports" / "gold-current.json"
 WALK_DB = TOOL / "walk.db"
 SESSION = "01KXBZY130DSAMPT8C72558Z4J"
 EVENTS = pathlib.Path.home() / ".euler" / "sessions" / SESSION / "events.jsonl"
@@ -90,15 +90,15 @@ class GoldRoundTripTest(unittest.TestCase):
         turns = sum(len(n.turns) for n in self.artifact.nodes)
         self.assertEqual(turns, len(self.export["node_steps"]))
 
-    def test_two_roots_including_unplaced_node(self):
-        # apply_patch has no backbone parent by design: rootness is topology,
-        # so it surfaces as a second root with kind/status unchanged (§2.1).
+    def test_single_question_root(self):
+        # Ruling 13 removed the clerical apply_patch node; the one root is the
+        # goal question, and step 15 is an unowned turn.
         roots = self.artifact.roots()
-        self.assertEqual(len(roots), 2)
-        unplaced = next(n for n in self.artifact.nodes if n.id == "n-sao1is14t7bys1lt5ehi")
-        self.assertIn(unplaced.id, roots)
-        self.assertEqual(unplaced.kind, "synthesis")
-        self.assertEqual(unplaced.status, "verified")
+        self.assertEqual(len(roots), 1)
+        root = next(n for n in self.artifact.nodes if n.id == roots[0])
+        self.assertEqual(root.kind, "question")
+        owned_steps = {t.step_id for n in self.artifact.nodes for t in n.turns}
+        self.assertNotIn(15, owned_steps)
 
     def test_serialization_is_deterministic(self):
         once = dumps(self.artifact)

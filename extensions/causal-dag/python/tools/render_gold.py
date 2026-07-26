@@ -30,7 +30,7 @@ from causal_dag import (  # noqa: E402
 )
 
 TOOL = pathlib.Path("/home/exedev/code/2x11-xyz/causal-dag-annotation-tool")
-GOLD_EXPORT = TOOL / "exports" / "01KXBZY130DSAMPT8C72558Z4J-gold-20260724.json"
+GOLD_EXPORT = TOOL / "exports" / "gold-current.json"
 WALK_DB = TOOL / "walk.db"
 SESSION = "01KXBZY130DSAMPT8C72558Z4J"
 EVENTS = pathlib.Path.home() / ".euler" / "sessions" / SESSION / "events.jsonl"

@@ -161,14 +161,6 @@
    "to": "n-1e9iiae1kgj5ehyuy4xm"
   },
   {
-   "backbone": false,
-   "class": "annotation",
-   "from": "n-1h9vbz7d7j159vyvy0",
-   "id": "e-prop8gfsl6454dho",
-   "kind": "evidence",
-   "to": "n-sao1is14t7bys1lt5ehi"
-  },
-  {
    "backbone": true,
    "class": "structural",
    "from": "n-prop1znsgr1p1pk2",
@@ -203,10 +195,10 @@
   {
    "backbone": false,
    "class": "annotation",
-   "from": "n-prop7th8b3a3efhd",
+   "from": "n-1e9iiae1kgj5ehyuy4xm",
    "id": "e-propedylg6ikhcto",
    "kind": "artifact_use",
-   "to": "n-1e9iiae1kgj5ehyuy4xm"
+   "to": "n-prop7th8b3a3efhd"
   },
   {
    "backbone": true,
@@ -243,18 +235,18 @@
   {
    "backbone": false,
    "class": "annotation",
-   "from": "n-prop8ocmhamvqurc",
+   "from": "n-prop7g6an8hvjdh6",
    "id": "e-propnl5v9vaoxp",
    "kind": "artifact_use",
-   "to": "n-prop7g6an8hvjdh6"
+   "to": "n-prop8ocmhamvqurc"
   },
   {
    "backbone": false,
    "class": "annotation",
-   "from": "n-129hv7awjcawnqpymxr",
+   "from": "n-1e9iiae1kgj5ehyuy4xm",
    "id": "e-propp280cckw47",
    "kind": "artifact_use",
-   "to": "n-1e9iiae1kgj5ehyuy4xm"
+   "to": "n-129hv7awjcawnqpymxr"
   },
   {
    "backbone": false,
@@ -315,10 +307,10 @@
   {
    "backbone": false,
    "class": "annotation",
-   "from": "n-prop8ocmhamvqurc",
+   "from": "n-prop2k5utrn565uz",
    "id": "e-propui1id0uybmlk",
    "kind": "artifact_use",
-   "to": "n-prop2k5utrn565uz"
+   "to": "n-prop8ocmhamvqurc"
   },
   {
    "backbone": true,
@@ -347,10 +339,10 @@
   {
    "backbone": false,
    "class": "annotation",
-   "from": "n-prop8ocmhamvqurc",
+   "from": "n-1e9iiae1kgj5ehyuy4xm",
    "id": "e-propxnmtxydxg5fr",
    "kind": "artifact_use",
-   "to": "n-1e9iiae1kgj5ehyuy4xm"
+   "to": "n-prop8ocmhamvqurc"
   },
   {
    "backbone": true,
@@ -1093,24 +1085,6 @@
       "01KXBW6Z5W65MR7CQNCE8WG6FH"
      ],
      "step_id": 1
-    }
-   ]
-  },
-  {
-   "consolidation": false,
-   "id": "n-sao1is14t7bys1lt5ehi",
-   "kind": "synthesis",
-   "status": "verified",
-   "turns": [
-    {
-     "event_ids": [
-      "01KXBWY3WF6R0G9XZAM2JY5KMT",
-      "01KXBWY3WMS1390VDSCME5W532",
-      "01KXBWY3WY0N5DCNEV8VYEVTCG",
-      "01KXBWY3XJR68XH9PA3YGG8MQX",
-      "01KXBWY3XPT0JY3ZYRTVHT1NHH"
-     ],
-     "step_id": 15
     }
    ]
   }

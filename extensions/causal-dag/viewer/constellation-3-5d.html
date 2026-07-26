@@ -107,10 +107,13 @@ document.addEventListener('click', function (e) {
 
   <div class="dag-hint" style="position:absolute; bottom:42px; right:26px; color:{{ th.hint }}; font-size:11px; pointer-events:none; white-space:nowrap;">drag to orbit · scroll to zoom · hover a node or dashed arc · click a node to zoom its family</div>
 
-  <div class="dag-legend" style="position:absolute; bottom:18px; right:26px; display:flex; align-items:center; gap:14px; font-size:11px; color:{{ th.sub }}; pointer-events:none;">
-    <sc-for list="{{ legend }}" as="g" hint-placeholder-count="0">
-      <span style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:{{ g.col }};"></span>{{ g.label }}</span>
-    </sc-for>
+  <div class="dag-legend" style="position:absolute; bottom:18px; right:26px; display:flex; flex-direction:column; align-items:flex-end; gap:6px; font-size:11px; color:{{ th.sub }}; pointer-events:none;">
+    <div style="display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-end; gap:14px;">
+      <sc-for list="{{ legend }}" as="g" hint-placeholder-count="0">
+        <span style="display:flex; align-items:center; gap:6px;"><span style="width:8px; height:8px; border-radius:50%; background:{{ g.col }};"></span>{{ g.label }}</span>
+      </sc-for>
+    </div>
+    <div style="max-width:340px; text-align:right; font-size:9.5px; line-height:1.4; color:{{ th.faint }};">Arrows point in the direction of influence. Backbone = process (forward in time); arcs = influence that may reach back.</div>
   </div>
 
   <sc-if value="{{ ready }}" hint-placeholder-val="{{ true }}">
@@ -118,11 +121,22 @@ document.addEventListener('click', function (e) {
       <div style="display:flex; flex-wrap:nowrap; gap:8px; align-items:baseline; font-size:11.5px; white-space:nowrap;">
         <span style="font-size:15px; color:{{ sel.color }};">{{ sel.glyph }}</span>
         <span style="color:{{ sel.color }};">{{ sel.statusWord }}</span>
-        <span style="color:{{ th.sub }}; flex:none;">· {{ sel.kind }}</span>
+        <span style="color:{{ th.sub }}; flex:none;">· {{ sel.kindGlyph }} {{ sel.kind }}</span>
       </div>
+      <sc-if value="{{ sel.statusDef }}" hint-placeholder-val="{{ false }}">
+        <div style="color:{{ th.sub }}; font-size:10.5px; line-height:1.45;">{{ sel.statusDef }}</div>
+      </sc-if>
+      <sc-if value="{{ sel.kindDef }}" hint-placeholder-val="{{ false }}">
+        <div style="color:{{ th.sub }}; font-size:10.5px; line-height:1.45;">{{ sel.kindDef }}</div>
+      </sc-if>
       <div style="color:{{ th.text }}; font-size:13px; font-weight:600; line-height:1.4;">{{ sel.title }}</div>
       <div style="color:{{ th.body }}; font-size:11.5px; line-height:1.55;">{{ sel.summary }}</div>
-      <div style="color:{{ th.faint }}; font-size:10.5px;">evidence {{ sel.ev }} · sequence = {{ sel.sequence }}</div>
+      <sc-if value="{{ sel.turns }}" hint-placeholder-val="{{ false }}">
+        <div style="color:{{ th.body }}; font-size:11px;">turns {{ sel.turns }}</div>
+      </sc-if>
+      <sc-if value="{{ sel.showMeta }}" hint-placeholder-val="{{ false }}">
+        <div style="color:{{ th.faint }}; font-size:10.5px;">evidence {{ sel.ev }} · seq {{ sel.sequence }} · occ {{ sel.occurrence }}</div>
+      </sc-if>
       <sc-for list="{{ sel.links }}" as="l" hint-placeholder-count="0">
         <div style="color:{{ th.sub }}; font-size:10.5px; line-height:1.5;">{{ l.txt }}</div>
       </sc-for>
@@ -150,6 +164,25 @@ const OPACITY = Object.fromEntries(STATUS_ORDER.map((s) => [s, 1]));
 const ARC_DAY = TOKENS.cross_arcs.kinds;
 const ARC_NIGHT = TOKENS.cross_arcs.kinds;
 const ARCC = TOKENS.cross_arcs.kinds;
+const KINDG = TOKENS.kinds ? Object.fromEntries(Object.keys(TOKENS.kinds).map((k) => [k, TOKENS.kinds[k].glyph])) : {};
+// One codebook (payload.definitions), keyed in the annotation display vocabulary;
+// bridge the v5 kind/status keys to it the way walk_import maps them so the
+// detail card can show each kind/status/edge its one-line definition.
+const DEFS = __DAG.definitions || {};
+const KIND_DEF_ALIAS = {};  // codebook v3 carries v5-native entries
+const STATUS_DEF_ALIAS = {};  // codebook v3 carries v5-native entries
+function kindDef(kind, consolidation) {
+  const nk = DEFS.node_kinds || {};
+  return (consolidation ? nk.checkpoint : nk[KIND_DEF_ALIAS[kind] || kind]) || '';
+}
+function statusDef(status) {
+  const st = DEFS.statuses || {};
+  return st[STATUS_DEF_ALIAS[status] || status] || '';
+}
+function edgeDef(kind) {
+  const ek = DEFS.edge_kinds || {};
+  return (ek.annotation && ek.annotation[kind]) || (ek.structural && ek.structural[kind]) || '';
+}
 const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
 
 function hexA(hex, alpha) {
@@ -654,9 +687,10 @@ class Component extends DCLogic {
       if (this.state.selArc != null) {
         const a = this.dag.arcs[this.state.selArc];
         vals.sel = {
-          glyph: '⤳', color: AC[a.kind] || '#8f92a3', statusWord: a.kind, kind: 'cross-arc',
+          glyph: '⤳', color: AC[a.kind] || '#8f92a3', statusWord: a.kind, kind: a.class, kindGlyph: '',
+          statusDef: edgeDef(a.kind), kindDef: '',
           title: this.byId[a.from].title + '  →  ' + this.byId[a.to].title,
-          summary: a.note || '', ev: '—', links: [], sequence: '—'
+          summary: a.note || '', ev: '—', links: [], turns: '', sequence: '—', occurrence: '', showMeta: false
         };
       } else {
         const n = this.byId[this.state.selId];
@@ -667,9 +701,10 @@ class Component extends DCLogic {
         });
         vals.sel = {
           glyph: GLYPH[n.status], color: PAL[n.status], statusWord: WORD[n.status],
-          kind: n.kind,
-          title: n.title, summary: n.summary, ev: n.ev, links,
-          sequence: this.idx[n.id] + ' / ' + (this.dag.nodes.length - 1)
+          kind: n.kind, kindGlyph: (n.consolidation ? KINDG.consolidation : KINDG[n.kind]) || '',
+          statusDef: statusDef(n.status), kindDef: kindDef(n.kind, n.consolidation),
+          title: n.title, summary: n.summary, ev: n.ev, links, turns: n.turns, occurrence: n.occurrence,
+          sequence: this.idx[n.id] + ' / ' + (this.dag.nodes.length - 1), showMeta: true
         };
       }
     }
