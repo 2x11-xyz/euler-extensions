@@ -7,7 +7,15 @@ import unittest
 EXTENSION_DIRECTORY = Path(__file__).resolve().parents[2]
 REPOSITORY_DIRECTORY = Path(__file__).resolve().parents[4]
 PYTHON_DIRECTORY = EXTENSION_DIRECTORY / "python"
+SDK_SOURCE = (
+    REPOSITORY_DIRECTORY
+    / "sdks"
+    / "python"
+    / "euler-managed-process-sdk"
+    / "src"
+)
 sys.path.insert(0, str(REPOSITORY_DIRECTORY))
+sys.path.insert(0, str(SDK_SOURCE))
 sys.path.insert(0, str(PYTHON_DIRECTORY))
 
 from plan_todo.plan import load_plan, replace_plan
