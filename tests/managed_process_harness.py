@@ -57,7 +57,7 @@ class ManagedProcessPeer:
         command: str,
         input_value: Any,
         *,
-        request_id: str = "command",
+        request_id: Any = "command",
     ) -> None:
         self.write(
             {

@@ -7,7 +7,10 @@ the tool directly, just as it selects any other advertised tool.
 
 Each `update_plan` call replaces the whole plan. A plan has 1–16 ordered items,
 uses only `pending`, `in_progress`, and `completed` item statuses, and permits
-at most one `in_progress` item. Its separate `plan_status` is one of:
+at most one `in_progress` item. Item status records execution position;
+`plan_status` independently controls immediate actionability. A blocked or
+waiting plan may retain its current `in_progress` item so resumption preserves
+focus. `plan_status` is one of:
 
 - `active`: unfinished work is actionable, so terminal idle asks Euler to
   continue;

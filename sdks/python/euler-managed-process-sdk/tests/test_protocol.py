@@ -277,6 +277,52 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
             self.assertEqual(error["message"], "extension command cancelled")
             peer.finish()
 
+    def test_bounded_integer_command_ids_round_trip_exactly(self):
+        for request_id in (-(1 << 63), (1 << 64) - 1):
+            with self.subTest(request_id=request_id), self.peer() as peer:
+                peer.initialize()
+                peer.invoke(
+                    "echo-input",
+                    {"marker": "numeric-boundary"},
+                    request_id=request_id,
+                )
+
+                response = peer.read()
+                self.assertIs(type(response["id"]), int)
+                self.assertEqual(response["id"], request_id)
+                self.assertEqual(
+                    response["result"],
+                    {"input": {"marker": "numeric-boundary"}},
+                )
+                peer.finish()
+
+    def test_bounded_integer_cancellation_targets_match_exactly(self):
+        for request_id in (-(1 << 63), (1 << 64) - 1):
+            with self.subTest(request_id=request_id), self.peer() as peer:
+                peer.initialize()
+                peer.invoke("wait-for-cancel", {}, request_id=request_id)
+                request = peer.read()
+                self.assertEqual(request["method"], "euler/host/query-provenance")
+                peer.write(
+                    {
+                        "jsonrpc": "2.0",
+                        "method": "$/cancelRequest",
+                        "params": {"id": request_id},
+                    }
+                )
+
+                response = peer.read()
+                self.assertIs(type(response["id"]), int)
+                self.assertEqual(response["id"], request_id)
+                self.assertEqual(
+                    response["error"],
+                    {
+                        "code": -32800,
+                        "message": "extension command cancelled",
+                    },
+                )
+                peer.finish()
+
     def test_malformed_or_wrong_target_cancel_notifications_fail_closed(self):
         malformed_notifications = (
             {

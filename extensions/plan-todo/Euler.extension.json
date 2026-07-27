@@ -25,7 +25,7 @@
       "invocation": "agent-only",
       "model_tool": {
         "name": "update_plan",
-        "description": "Track a nontrivial multi-step task without waiting for an explicit goal command. Submit the complete replacement plan, keep at most one current item in_progress, and call this tool again as statuses change; mark every item completed before finishing. Use blocked or waiting only when no actionable work can continue, with an explanation. The user already sees the rendered checklist, so do not repeat it in prose.",
+        "description": "Track a nontrivial multi-step task without waiting for an explicit goal command. Submit the complete replacement plan and call this tool as statuses change; keep at most one current item in_progress and mark every item completed before finishing. plan_status independently controls immediate actionability: blocked or waiting may retain the current in_progress item, but use either only when no actionable work can continue and explain why. The user sees the checklist, so do not repeat it in prose.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -37,7 +37,7 @@
             },
             "plan_status": {
               "type": "string",
-              "description": "Whether unfinished plan items remain actionable.",
+              "description": "Whether unfinished work is immediately actionable, independent of which item is current.",
               "enum": [
                 "active",
                 "blocked",
@@ -46,7 +46,7 @@
             },
             "plan": {
               "type": "array",
-              "description": "The complete replacement plan in execution order. At most one item may have status in_progress.",
+              "description": "The complete replacement plan in execution order. At most one item may be current (in_progress); plan_status separately controls actionability.",
               "minItems": 1,
               "maxItems": 16,
               "items": {

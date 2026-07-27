@@ -27,6 +27,10 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(idle["invocation"], "agent-only")
         self.assertEqual(update["model_tool"]["name"], "update_plan")
         self.assertIn("without waiting for an explicit goal", update["model_tool"]["description"])
+        self.assertIn(
+            "may retain the current in_progress item",
+            update["model_tool"]["description"],
+        )
         self.assertEqual(
             self.manifest["idle_contribution"],
             {"command": "continue-if-needed"},
