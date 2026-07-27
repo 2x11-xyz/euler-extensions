@@ -60,6 +60,7 @@ fn full_lifecycle_with_host_round_trips() {
         json!({"jsonrpc": "2.0", "id": "client-2", "result": {
             "persisted_event_id": "a1", "relative_path": "artifacts/x", "sha256": "h", "byte_len": 2,
         }}),
+        json!({"jsonrpc": "2.0", "id": "client-3", "result": {}}),
         shutdown,
         exit,
     ]);
@@ -80,6 +81,21 @@ fn full_lifecycle_with_host_round_trips() {
                 source_event_ids: vec!["e1".to_owned()],
                 metadata: Map::new(),
             })?;
+            host.update_plan_presentation(&PlanPresentation {
+                revision: 2,
+                status: PlanPresentationStatus::Active,
+                explanation: Some("Implement the bridge".to_owned()),
+                items: vec![
+                    PlanPresentationItem {
+                        step: "Inspect".to_owned(),
+                        status: PlanItemStatus::Completed,
+                    },
+                    PlanPresentationItem {
+                        step: "Implement".to_owned(),
+                        status: PlanItemStatus::InProgress,
+                    },
+                ],
+            })?;
             Ok(json!({
                 "events": page.get("events").cloned().unwrap_or(Value::Null),
                 "persisted_event_id": record.get("persisted_event_id").cloned(),
@@ -90,16 +106,33 @@ fn full_lifecycle_with_host_round_trips() {
     serve_with(reader, &mut writer, handlers).expect("clean lifecycle");
 
     let messages = written_messages(&writer);
-    assert_eq!(messages.len(), 5);
+    assert_eq!(messages.len(), 6);
     assert_eq!(messages[0]["result"]["protocol_version"], PROTOCOL_VERSION);
     assert_eq!(messages[1]["method"], "euler/host/query-provenance");
     assert_eq!(messages[1]["params"]["limit"], 2);
     assert_eq!(messages[2]["method"], "euler/host/write-artifact");
     assert_eq!(messages[2]["params"]["bytes_base64"], "e30=");
-    assert_eq!(messages[3]["id"], 2);
-    assert_eq!(messages[3]["result"]["persisted_event_id"], "a1");
-    assert_eq!(messages[4]["id"], 3);
-    assert_eq!(messages[4]["result"], json!({}));
+    assert_eq!(
+        messages[3],
+        json!({
+            "jsonrpc": "2.0",
+            "id": "client-3",
+            "method": "euler/host/update-plan-presentation",
+            "params": {
+                "revision": 2,
+                "status": "active",
+                "explanation": "Implement the bridge",
+                "items": [
+                    {"step": "Inspect", "status": "completed"},
+                    {"step": "Implement", "status": "in_progress"},
+                ],
+            },
+        })
+    );
+    assert_eq!(messages[4]["id"], 2);
+    assert_eq!(messages[4]["result"]["persisted_event_id"], "a1");
+    assert_eq!(messages[5]["id"], 3);
+    assert_eq!(messages[5]["result"], json!({}));
 }
 
 #[test]

@@ -137,6 +137,42 @@ pub struct ArtifactWrite {
     pub metadata: Map<String, Value>,
 }
 
+/// A bounded workflow-owned checklist for Euler's canonical transcript.
+///
+/// Euler validates the DTO's byte, item, revision, enum, and text-safety
+/// bounds at the host boundary. The SDK keeps the wire shape typed without
+/// inventing workflow transition rules.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PlanPresentation {
+    pub revision: u64,
+    pub status: PlanPresentationStatus,
+    pub explanation: Option<String>,
+    pub items: Vec<PlanPresentationItem>,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanPresentationStatus {
+    Active,
+    Blocked,
+    Waiting,
+    Completed,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct PlanPresentationItem {
+    pub step: String,
+    pub status: PlanItemStatus,
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanItemStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
 /// Capability-gated host APIs available during a command invocation.
 pub struct Host<'wire, R, W> {
     wire: &'wire mut Wire<R, W>,
@@ -242,6 +278,16 @@ impl<R: BufRead, W: Write> Host<'_, R, W> {
             json!({"slot": slot, "content": content}),
         )
         .map(|_| ())
+    }
+
+    pub fn update_plan_presentation(
+        &mut self,
+        presentation: &PlanPresentation,
+    ) -> Result<(), Error> {
+        let params =
+            serde_json::to_value(presentation).map_err(|error| protocol(error.to_string()))?;
+        self.request("euler/host/update-plan-presentation", params)
+            .map(|_| ())
     }
 
     pub fn spawn_agent(&mut self, task: &Value) -> Result<Value, Error> {

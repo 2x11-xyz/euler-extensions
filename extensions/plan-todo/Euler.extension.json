@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "id": "plan-todo",
+  "display_name": "Plan / Todo",
+  "extension_version": "0.1.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["python3", "-B", "-u", "python/extension.py"]
+  },
+  "capabilities": [
+    "extension-state",
+    "context-slot",
+    "plan-presentation"
+  ],
+  "commands": [
+    {
+      "name": "update-plan",
+      "display_name": "Update plan",
+      "summary": "Replace the session plan and publish its concise model context.",
+      "required_capabilities": [
+        "extension-state",
+        "context-slot",
+        "plan-presentation"
+      ],
+      "invocation": "agent-only",
+      "model_tool": {
+        "name": "update_plan",
+        "description": "Track a nontrivial multi-step task without waiting for an explicit goal command. Submit the complete replacement plan, keep at most one current item in_progress, and call this tool again as statuses change; mark every item completed before finishing. Use blocked or waiting only when no actionable work can continue, with an explanation. The user already sees the rendered checklist, so do not repeat it in prose.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "explanation": {
+              "type": "string",
+              "description": "A concise reason for this replacement. It is required when plan_status is blocked or waiting.",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "plan_status": {
+              "type": "string",
+              "description": "Whether unfinished plan items remain actionable.",
+              "enum": [
+                "active",
+                "blocked",
+                "waiting"
+              ]
+            },
+            "plan": {
+              "type": "array",
+              "description": "The complete replacement plan in execution order. At most one item may have status in_progress.",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "step": {
+                    "type": "string",
+                    "description": "A concise, concrete work item.",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ]
+                  }
+                },
+                "required": [
+                  "step",
+                  "status"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "plan_status",
+            "plan"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "name": "continue-if-needed",
+      "display_name": "Continue active plan",
+      "summary": "Continue at terminal idle only while the durable plan has actionable unfinished work.",
+      "required_capabilities": [
+        "extension-state",
+        "context-slot",
+        "plan-presentation"
+      ],
+      "invocation": "agent-only"
+    }
+  ],
+  "idle_contribution": {
+    "command": "continue-if-needed"
+  }
+}
