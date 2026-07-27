@@ -26,9 +26,9 @@ class GoldManifestTest(unittest.TestCase):
         cls.nodes = {n["id"]: n for n in cls.m["nodes"]}
 
     def test_shape_counts(self):
-        self.assertEqual(len(self.m["nodes"]), 31)
-        self.assertEqual(len(self.m["edges"]), 46)
-        self.assertEqual(sum(len(n["turns"]) for n in self.m["nodes"]), 60)
+        self.assertEqual(len(self.m["nodes"]), 30)
+        self.assertEqual(len(self.m["edges"]), 45)
+        self.assertEqual(sum(len(n["turns"]) for n in self.m["nodes"]), 59)
 
     def test_vocabulary(self):
         for n in self.m["nodes"]:
@@ -61,7 +61,8 @@ class GoldManifestTest(unittest.TestCase):
                                  f"{e['to']} has two backbone parents")
                 parents[e["to"]] = e["from"]
         roots = [nid for nid in self.nodes if nid not in parents]
-        self.assertEqual(len(roots), 2)  # the goal + the unplaced synthesis
+        # One root since ruling 13: the clerical apply_patch node was deleted.
+        self.assertEqual(len(roots), 1)
         for nid in self.nodes:  # every node climbs to a root without cycling
             seen = set()
             while nid in parents:

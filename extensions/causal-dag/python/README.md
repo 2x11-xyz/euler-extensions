@@ -26,6 +26,53 @@ phases and are deliberately not stubbed).
   per-kind status mapping tables, and the handling of the deliberately-unplaced
   node, are documented in the module docstring.
 
+## Milestone 2 — exports and the native v5 viewers
+
+The renderers and viewer projection that turn a v5 `Artifact` into shareable
+output. All pure and deterministic; the viewers adapt the archived HTML shells
+to v5 natively (ruling 12 — no v3 down-conversion).
+
+- `causal_dag/exports.py` — three renderers over an `Artifact`:
+  - `to_dot(artifact)` — a Graphviz digraph: solid backbone edges, dashed
+    annotation arcs labelled by kind, node colour/glyph by v5 status (roots
+    gold, R5).
+  - `to_markdown(artifact)` — per-root backbone outline, then **Dead ends**,
+    **Decided (refuted)** (a refuted claim is knowledge, so it gets its own
+    heading — never the dead-end pile), **Open frontier**, and **Cross-arcs**.
+  - `to_summary(artifact, budget=4096)` — the context-slot text
+    (`GRAPH: … / DEAD ENDS / ACTIVE PATH / OPEN`), fit to budget by dropping
+    OPEN first, then trimming ACTIVE PATH from the front, then shortening
+    dead-end reasons, then dropping dead ends — dead ends survive longest.
+- `causal_dag/viewer.py` — `viewer_payload(artifact)` (schema
+  `euler.causal_dag.viewer.v5`): folds each node's single backbone parent in,
+  assigns a parent-before-child `sequence` by a backbone walk from the
+  active/first root (ties break on chronological `occurrence` — the node's
+  first-turn step, the axis the 3.5D view rides), and turns non-backbone edges
+  into cross-arcs. `render_html(artifact, view)` assembles one self-contained
+  page per view (`top-down`, `indented`, `3d`, `3-5d`) by inlining the shells,
+  `runtime.js`, the bundled React UMD builds, and `viewer/palette-v5.json`.
+- `viewer/palette-v5.json` — the v5 palette (next to the untouched v3
+  `palette.json`): the carried-over eight status tokens plus `succeeded`/
+  `answered` (success family), `verified`/`proven` (blue, distinct glyphs
+  `✓`/`✔`), `supported` (supportive mid-green `⊕`), `stated` (quiet `◇`), and
+  `refuted` — a first-class decisive treatment in crimson `#D7263D` with the
+  logical-falsum glyph `⊥`, deliberately **not** the dead-end vermillion. Kinds
+  (+ consolidation) carry 2D-detail glyphs; annotation arc colours carry over.
+- The four HTML shells were adapted minimally (`runtime.js` is unchanged): the
+  always-gold root treatment now keys off payload `isRoot` (rootness is
+  topology in v5), and the 2D detail cards show the kind glyph.
+
+### Running the renderer
+
+```
+python3 tools/render_gold.py --out /tmp/m2-out
+```
+
+Projects the private gold walk (and the public mini fixture), asserts the
+invariant checker is finding-free, and writes `artifact.json`, `gold.dot`,
+`gold.md`, `gold.txt`, and `gold-*.html` / `mini-*.html`. Each page is
+self-contained (no external URLs) and embeds a re-parseable v5 payload.
+
 ## Invariants (§4 + inherited v3 envelope rules)
 
 | Check | Guards |

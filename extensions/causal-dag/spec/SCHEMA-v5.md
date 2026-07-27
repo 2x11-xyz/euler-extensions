@@ -103,6 +103,14 @@ Unchanged from v3 in class/kind vocabulary — the walk validated it
 - `chronology`: `sequence` (degraded projections only; forbidden in
   semantic hints)
 
+**Influence direction** (R14): every directed edge points in the direction
+of influence — the `from` node acts on, feeds, or changes the standing of
+the `to` node. The backbone already conforms (a parent's work enables its
+children). Among annotations, `artifact_use` runs producer → consumer (its
+product feeds the target, not a citation back to it); `related` is symmetric,
+so its direction carries no meaning. Time-backward arrows are legal and
+meaningful: a later refutation influences the standing of an earlier claim.
+
 Backbone rule (unchanged): every non-root node has exactly one incoming
 `canonical_backbone` structural edge; backbone edges never cross roots and
 never cycle.
