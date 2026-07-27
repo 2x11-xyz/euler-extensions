@@ -31,6 +31,11 @@ the session- and extension-namespaced private state surface governed by
 to Euler's canonical transcript/provenance event stream; it does not inject
 workflow text into model context.
 
+`extension_model_text_is_format_safe(text)` exposes Euler's frozen Unicode-17
+format-spoof and separator predicate for extension-authored model-facing text.
+It intentionally leaves ordinary control-character, emptiness, and length
+rules to the specific host operation or workflow.
+
 Protocol conformance tests exercise the production package directly, including
 every public host method, cancellation, framing, and sanitized failures:
 

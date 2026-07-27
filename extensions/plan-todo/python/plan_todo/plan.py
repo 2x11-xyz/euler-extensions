@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from euler_managed_process_sdk import extension_model_text_is_format_safe
+
 
 SCHEMA_VERSION = 1
 STATE_FILENAME = "plan.json"
@@ -25,30 +27,6 @@ MAX_CONTEXT_SLOT_BYTES = 4096
 MAX_REVISION = (1 << 63) - 1
 _SLOT_STEP_BYTES = 176
 _SLOT_REASON_BYTES = 480
-_HOST_CF_RANGES = (
-    (0x00AD, 0x00AD),
-    (0x0600, 0x0605),
-    (0x061C, 0x061C),
-    (0x06DD, 0x06DD),
-    (0x070F, 0x070F),
-    (0x0890, 0x0891),
-    (0x08E2, 0x08E2),
-    (0x180E, 0x180E),
-    (0x200B, 0x200F),
-    (0x202A, 0x202E),
-    (0x2060, 0x2064),
-    (0x2066, 0x206F),
-    (0xFEFF, 0xFEFF),
-    (0xFFF9, 0xFFFB),
-    (0x110BD, 0x110BD),
-    (0x110CD, 0x110CD),
-    (0x13430, 0x1343F),
-    (0x1BCA0, 0x1BCA3),
-    (0x1D173, 0x1D17A),
-    (0xE0001, 0xE0001),
-    (0xE0020, 0xE007F),
-)
-_HOST_SEPARATOR_CODE_POINTS = frozenset((0x2028, 0x2029))
 
 
 class PlanValidationError(ValueError):
@@ -167,7 +145,12 @@ def load_plan(state_directory: str) -> Optional[PlanState]:
         )
     except PlanValidationError as error:
         raise DurablePlanError(str(error)) from error
-    if value["schema_version"] != SCHEMA_VERSION:
+    schema_version = value["schema_version"]
+    if (
+        isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version != SCHEMA_VERSION
+    ):
         raise DurablePlanError("durable plan has an unsupported schema version")
     revision = value["revision"]
     if (
@@ -302,13 +285,10 @@ def _validated_text(
 def text_character_is_unsafe(character: str) -> bool:
     """Mirror core's frozen Unicode-17 model-text boundary on Python 3.9+."""
 
-    category = unicodedata.category(character)
-    if category in {"Cc", "Cf", "Zl", "Zp"}:
-        return True
-    code_point = ord(character)
-    if code_point in _HOST_SEPARATOR_CODE_POINTS:
-        return True
-    return any(start <= code_point <= end for start, end in _HOST_CF_RANGES)
+    return (
+        unicodedata.category(character) == "Cc"
+        or not extension_model_text_is_format_safe(character)
+    )
 
 
 def _require_exact_keys(

@@ -277,6 +277,69 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
             self.assertEqual(error["message"], "extension command cancelled")
             peer.finish()
 
+    def test_malformed_or_wrong_target_cancel_notifications_fail_closed(self):
+        malformed_notifications = (
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": "another-command"},
+            },
+            {"jsonrpc": "2.0", "method": "$/cancelRequest"},
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": [],
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": True},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": 1.5},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": -(1 << 63) - 1},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": 1 << 64},
+            },
+            {
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": {"id": "command", "extra": True},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": "client-1",
+                "method": "$/cancelRequest",
+                "params": {"id": "command"},
+            },
+        )
+        for notification in malformed_notifications:
+            with self.subTest(notification=notification), self.peer() as peer:
+                peer.initialize()
+                peer.invoke("catch-inbound-protocol-error", {})
+                request = peer.read()
+                self.assertEqual(request["method"], "euler/host/state-dir")
+                peer.write(notification)
+                self.assertEqual(
+                    peer.read()["result"],
+                    {"caught": "invalid cancellation notification"},
+                )
+                peer.finish()
+
     def test_invalid_host_results_are_sanitized(self):
         with self.peer() as peer:
             peer.initialize()
@@ -338,8 +401,17 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                 )
                 peer.finish()
 
-    def test_boolean_request_ids_are_rejected(self):
-        for request_id in ("true", "false"):
+    def test_invalid_request_ids_are_rejected(self):
+        request_ids = (
+            "true",
+            "false",
+            "null",
+            "1.0",
+            "1.5",
+            str(-(1 << 63) - 1),
+            str(1 << 64),
+        )
+        for request_id in request_ids:
             with self.subTest(request_id=request_id), self.peer() as peer:
                 peer.write_raw(
                     (
@@ -352,6 +424,55 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                 return_code = peer.wait()
                 self.assertNotEqual(return_code, 0)
                 self.assertIn("expected initialize request", peer.stderr())
+
+    def test_string_and_bounded_integer_request_ids_are_preserved(self):
+        request_ids = (
+            ('"request-id"', "request-id"),
+            (str(-(1 << 63)), -(1 << 63)),
+            (str((1 << 64) - 1), (1 << 64) - 1),
+        )
+        for encoded_id, expected_id in request_ids:
+            with self.subTest(request_id=encoded_id), self.peer() as peer:
+                peer.write_raw(
+                    (
+                        '{"jsonrpc":"2.0","id":'
+                        f"{encoded_id},"
+                        '"method":"initialize","params":'
+                        '{"protocol_versions":["euler-managed-process/999"]}}\n'
+                    )
+                )
+                response = peer.read()
+                self.assertEqual(response["id"], expected_id)
+                self.assertEqual(response["error"]["code"], -32602)
+                peer.wait(expected=0)
+
+    def test_protocol_versions_must_be_an_array_of_nonempty_strings(self):
+        malformed_versions = (
+            "euler-managed-process/1",
+            {},
+            1,
+            True,
+            None,
+            [],
+            [1],
+            [""],
+            ["euler-managed-process/1", 1],
+            ["euler-managed-process/1", ""],
+        )
+        for versions in malformed_versions:
+            with self.subTest(versions=versions), self.peer() as peer:
+                peer.write(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "initialize",
+                        "method": "initialize",
+                        "params": {"protocol_versions": versions},
+                    }
+                )
+                response = peer.read()
+                self.assertEqual(response["id"], "initialize")
+                self.assertEqual(response["error"]["code"], -32602)
+                peer.wait(expected=0)
 
     def test_negotiated_framing_limit_is_enforced(self):
         with self.peer(max_message_bytes=128) as peer:

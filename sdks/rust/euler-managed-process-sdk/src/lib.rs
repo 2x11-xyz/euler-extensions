@@ -176,6 +176,7 @@ pub enum PlanItemStatus {
 /// Capability-gated host APIs available during a command invocation.
 pub struct Host<'wire, R, W> {
     wire: &'wire mut Wire<R, W>,
+    command_request_id: Value,
     next_request_id: u64,
 }
 
@@ -312,6 +313,10 @@ impl<R: BufRead, W: Write> Host<'_, R, W> {
             "params": params,
         }))?;
         let message = self.wire.read()?;
+        if message.get("method").and_then(Value::as_str) == Some("$/cancelRequest") {
+            require_exact_cancellation(&message, &self.command_request_id)?;
+            return Err(Error::Cancelled);
+        }
         if message.get("id").and_then(Value::as_str) == Some(request_id.as_str()) {
             if let Some(result) = message.get("result") {
                 if !message.contains_key("error") {
@@ -325,9 +330,6 @@ impl<R: BufRead, W: Write> Host<'_, R, W> {
                 .and_then(Value::as_str)
                 .unwrap_or("host operation failed");
             return Err(Error::Host(error.to_owned()));
-        }
-        if message.get("method").and_then(Value::as_str) == Some("$/cancelRequest") {
-            return Err(Error::Cancelled);
         }
         Err(protocol(
             "unexpected message while waiting for host response",
@@ -426,6 +428,7 @@ pub fn serve_with<R: BufRead, W: Write>(
                 let outcome = {
                     let mut host = Host {
                         wire: &mut wire,
+                        command_request_id: command_id.clone(),
                         next_request_id: 1,
                     };
                     handler(&context, &mut host)
@@ -466,11 +469,38 @@ pub fn serve_with<R: BufRead, W: Write>(
 
 fn require_request(message: &Map<String, Value>, method: &str) -> Result<Value, Error> {
     let id = message.get("id");
-    let id_valid = matches!(id, Some(Value::String(_)) | Some(Value::Number(_)));
-    if message.get("method").and_then(Value::as_str) != Some(method) || !id_valid {
+    if message.get("method").and_then(Value::as_str) != Some(method)
+        || !id.is_some_and(valid_request_id)
+    {
         return Err(protocol(format!("expected {method} request")));
     }
     Ok(id.cloned().expect("id checked above"))
+}
+
+fn valid_request_id(value: &Value) -> bool {
+    value.is_string() || value.as_i64().is_some() || value.as_u64().is_some()
+}
+
+fn require_exact_cancellation(
+    message: &Map<String, Value>,
+    command_request_id: &Value,
+) -> Result<(), Error> {
+    let params = message.get("params").and_then(Value::as_object);
+    let exact_notification = message.len() == 3
+        && message.contains_key("jsonrpc")
+        && message.contains_key("method")
+        && message.contains_key("params");
+    let exact_target = params.is_some_and(|params| {
+        params.len() == 1
+            && params
+                .get("id")
+                .is_some_and(|id| valid_request_id(id) && id == command_request_id)
+    });
+    if exact_notification && exact_target {
+        Ok(())
+    } else {
+        Err(protocol("invalid cancellation notification"))
+    }
 }
 
 fn write_result<R: BufRead, W: Write>(

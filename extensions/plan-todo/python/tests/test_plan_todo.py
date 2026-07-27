@@ -27,7 +27,6 @@ from plan_todo.commands import (
     handle_update_plan,
 )
 from plan_todo.plan import (
-    _HOST_CF_RANGES,
     DurablePlanError,
     MAX_CONTEXT_SLOT_BYTES,
     MAX_ITEMS,
@@ -158,38 +157,6 @@ class PlanStateTests(unittest.TestCase):
                                 },
                             )
 
-    def test_rejects_every_frozen_host_unicode_17_format_code_point(self):
-        count = 0
-        with TemporaryDirectory() as directory:
-            for start, end in _HOST_CF_RANGES:
-                for code_point in range(start, end + 1):
-                    with self.subTest(code_point=f"U+{code_point:04X}"):
-                        with self.assertRaises(PlanValidationError):
-                            replace_plan(
-                                directory,
-                                {
-                                    "plan_status": "active",
-                                    "plan": [
-                                        {
-                                            "step": f"before{chr(code_point)}after",
-                                            "status": "pending",
-                                        }
-                                    ],
-                                },
-                            )
-                    count += 1
-
-            allowed = replace_plan(
-                directory,
-                {
-                    "plan_status": "active",
-                    "plan": [{"step": "reserved\u2065", "status": "pending"}],
-                },
-            )
-
-        self.assertEqual(count, 170)
-        self.assertEqual(allowed.plan[0].step, "reserved\u2065")
-
     def test_rejects_non_utf8_unicode_scalar_input(self):
         with TemporaryDirectory() as directory:
             with self.assertRaisesRegex(
@@ -222,6 +189,30 @@ class PlanStateTests(unittest.TestCase):
             )
             with self.assertRaises(PlanValidationError):
                 load_plan(directory)
+
+    def test_schema_version_requires_exact_non_boolean_integer(self):
+        invalid_versions = (True, False, 1.0, "1", 2, None)
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "plan.json"
+            for schema_version in invalid_versions:
+                with self.subTest(schema_version=schema_version):
+                    path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": schema_version,
+                                "revision": 1,
+                                "plan_status": "active",
+                                "explanation": "",
+                                "plan": [{"step": "one", "status": "pending"}],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    with self.assertRaisesRegex(
+                        DurablePlanError,
+                        "unsupported schema version",
+                    ):
+                        load_plan(directory)
 
     def test_rejects_invalid_utf8_and_non_object_state(self):
         with TemporaryDirectory() as directory:

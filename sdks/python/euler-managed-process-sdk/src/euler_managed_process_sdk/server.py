@@ -17,6 +17,8 @@ from typing import Any, Optional
 
 PROTOCOL_VERSION = "euler-managed-process/1"
 _DEFAULT_MAX_MESSAGE_BYTES = 1024 * 1024
+_MIN_REQUEST_ID = -(1 << 63)
+_MAX_REQUEST_ID = (1 << 64) - 1
 
 
 class ProtocolError(RuntimeError):
@@ -82,15 +84,20 @@ class _Wire:
         sys.stdout.buffer.flush()
 
     def set_max_message_bytes(self, maximum: Any) -> None:
-        if isinstance(maximum, int) and 0 < maximum <= _DEFAULT_MAX_MESSAGE_BYTES:
+        if (
+            not isinstance(maximum, bool)
+            and isinstance(maximum, int)
+            and 0 < maximum <= _DEFAULT_MAX_MESSAGE_BYTES
+        ):
             self._max_message_bytes = maximum
 
 
 class Host:
     """Capability-gated host APIs available during a command invocation."""
 
-    def __init__(self, wire: _Wire) -> None:
+    def __init__(self, wire: _Wire, command_request_id: Any) -> None:
         self._wire = wire
+        self._command_request_id = command_request_id
         self._next_request_id = 1
 
     def progress(self, message: str, fraction: Optional[float] = None) -> None:
@@ -225,6 +232,12 @@ class Host:
         )
         while True:
             message = self._wire.read()
+            if message.get("method") == "$/cancelRequest":
+                _require_exact_cancellation(
+                    message,
+                    command_request_id=self._command_request_id,
+                )
+                raise Cancelled("Euler cancelled the command")
             if message.get("id") == request_id:
                 if "result" in message and "error" not in message:
                     return message["result"]
@@ -232,8 +245,6 @@ class Host:
                 if isinstance(error, dict) and isinstance(error.get("message"), str):
                     raise HostError(error["message"])
                 raise HostError("host operation failed")
-            if message.get("method") == "$/cancelRequest":
-                raise Cancelled("Euler cancelled the command")
             raise ProtocolError("unexpected message while waiting for host response")
 
 
@@ -249,9 +260,7 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
     initialize = wire.read()
     _require_request(initialize, "initialize")
     params = initialize.get("params")
-    if not isinstance(params, dict) or PROTOCOL_VERSION not in params.get(
-        "protocol_versions", []
-    ):
+    if not isinstance(params, dict) or not _offers_supported_protocol(params):
         _error(wire, initialize["id"], -32602, "no compatible protocol version")
         return
     limits = params.get("limits")
@@ -278,7 +287,11 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
         else:
             try:
                 result = handler(
-                    CommandContext(name, command_params.get("input"), Host(wire))
+                    CommandContext(
+                        name,
+                        command_params.get("input"),
+                        Host(wire, command["id"]),
+                    )
                 )
                 if not isinstance(result, Mapping):
                     raise TypeError("command result must be an object")
@@ -298,9 +311,45 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
 
 def _require_request(message: Mapping[str, Any], method: str) -> None:
     request_id = message.get("id")
-    valid_id = not isinstance(request_id, bool) and isinstance(request_id, (str, int))
-    if message.get("method") != method or not valid_id:
+    if message.get("method") != method or not _valid_request_id(request_id):
         raise ProtocolError(f"expected {method} request")
+
+
+def _valid_request_id(value: Any) -> bool:
+    if isinstance(value, str):
+        return True
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int)
+        and _MIN_REQUEST_ID <= value <= _MAX_REQUEST_ID
+    )
+
+
+def _offers_supported_protocol(params: Mapping[str, Any]) -> bool:
+    versions = params.get("protocol_versions")
+    return (
+        isinstance(versions, list)
+        and bool(versions)
+        and all(isinstance(version, str) and bool(version) for version in versions)
+        and PROTOCOL_VERSION in versions
+    )
+
+
+def _require_exact_cancellation(
+    message: Mapping[str, Any],
+    *,
+    command_request_id: Any,
+) -> None:
+    params = message.get("params")
+    exact_notification = set(message) == {"jsonrpc", "method", "params"}
+    exact_params = isinstance(params, dict) and set(params) == {"id"}
+    if (
+        not exact_notification
+        or not exact_params
+        or not _valid_request_id(params["id"])
+        or params["id"] != command_request_id
+    ):
+        raise ProtocolError("invalid cancellation notification")
 
 
 def _result(wire: _Wire, request_id: Any, result: Any) -> None:
