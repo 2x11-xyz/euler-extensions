@@ -370,13 +370,12 @@ pub fn serve_with<R: BufRead, W: Write>(
 
     let initialize = wire.read()?;
     let initialize_id = require_request(&initialize, "initialize")?;
-    let compatible = initialize
+    let versions = initialize
         .get("params")
         .and_then(Value::as_object)
         .and_then(|params| params.get("protocol_versions"))
-        .and_then(Value::as_array)
-        .is_some_and(|versions| versions.iter().any(|value| value == PROTOCOL_VERSION));
-    if !compatible {
+        .and_then(Value::as_array);
+    if !versions.is_some_and(|versions| offers_supported_protocol(versions)) {
         write_error(
             &mut wire,
             &initialize_id,
@@ -479,6 +478,16 @@ fn require_request(message: &Map<String, Value>, method: &str) -> Result<Value, 
 
 fn valid_request_id(value: &Value) -> bool {
     value.is_string() || value.as_i64().is_some() || value.as_u64().is_some()
+}
+
+fn offers_supported_protocol(versions: &[Value]) -> bool {
+    !versions.is_empty()
+        && versions
+            .iter()
+            .all(|version| version.as_str().is_some_and(|version| !version.is_empty()))
+        && versions
+            .iter()
+            .any(|version| version.as_str() == Some(PROTOCOL_VERSION))
 }
 
 fn require_exact_cancellation(

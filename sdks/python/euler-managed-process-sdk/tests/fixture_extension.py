@@ -127,6 +127,10 @@ def catch_inbound_protocol_error(context: CommandContext) -> dict[str, object]:
     return {"caught": None}
 
 
+def echo_input(context: CommandContext) -> dict[str, object]:
+    return {"input": context.input}
+
+
 def fail(_context: CommandContext) -> dict[str, object]:
     raise RuntimeError("private implementation detail")
 
@@ -165,6 +169,7 @@ if __name__ == "__main__":
             "wait-for-cancel": wait_for_cancel,
             "invalid-state-result": invalid_state_result,
             "catch-inbound-protocol-error": catch_inbound_protocol_error,
+            "echo-input": echo_input,
             "fail": fail,
             "non-object": non_object,
             "oversized": oversized,

@@ -371,16 +371,16 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
             self.assertEqual(error["message"], "extension command failed")
             peer.finish()
 
-    def test_inbound_non_finite_numbers_are_rejected(self):
-        for constant in ("NaN", "Infinity", "-Infinity"):
-            with self.subTest(constant=constant), self.peer() as peer:
+    def test_non_finite_host_response_numbers_are_rejected(self):
+        for number in ("NaN", "Infinity", "-Infinity", "1e309", "-1e309"):
+            with self.subTest(number=number), self.peer() as peer:
                 peer.initialize()
                 peer.invoke("catch-inbound-protocol-error", {})
                 request = peer.read()
                 peer.write_raw(
                     (
                         '{"jsonrpc":"2.0","id":'
-                        f'"{request["id"]}","result":{constant}'
+                        f'"{request["id"]}","result":{number}'
                         "}\n"
                     )
                 )
@@ -389,6 +389,39 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                     {"caught": "invalid protocol message"},
                 )
                 peer.finish()
+
+    def test_exponent_overflow_in_command_input_is_rejected(self):
+        for number in ("1e309", "-1e309"):
+            with self.subTest(number=number), self.peer() as peer:
+                peer.initialize()
+                peer.write_raw(
+                    (
+                        '{"jsonrpc":"2.0","id":"command",'
+                        '"method":"euler/command","params":'
+                        '{"command":"echo-input","input":{"value":'
+                        + number
+                        + "}}}\n"
+                    )
+                )
+                return_code = peer.wait()
+                self.assertNotEqual(return_code, 0)
+                self.assertIn("invalid protocol message", peer.stderr())
+
+    def test_finite_decimal_command_input_round_trips(self):
+        with self.peer() as peer:
+            peer.initialize()
+            peer.write_raw(
+                (
+                    '{"jsonrpc":"2.0","id":"command",'
+                    '"method":"euler/command","params":'
+                    '{"command":"echo-input","input":{"value":1.25e2}}}\n'
+                )
+            )
+            self.assertEqual(
+                peer.read()["result"],
+                {"input": {"value": 125.0}},
+            )
+            peer.finish()
 
     def test_outbound_non_finite_numbers_raise_protocol_error(self):
         for kind in ("nan", "positive-infinity", "negative-infinity"):

@@ -22,9 +22,13 @@ fn written_messages(writer: &[u8]) -> Vec<Value> {
 }
 
 fn initialize(id: u64) -> Value {
+    initialize_with_versions(id, json!([PROTOCOL_VERSION]))
+}
+
+fn initialize_with_versions(id: u64, protocol_versions: Value) -> Value {
     json!({
         "jsonrpc": "2.0", "id": id, "method": "initialize",
-        "params": {"protocol_versions": [PROTOCOL_VERSION]},
+        "params": {"protocol_versions": protocol_versions},
     })
 }
 
@@ -319,10 +323,10 @@ fn integer_request_ids_outside_the_wire_bounds_are_rejected() {
 
 #[test]
 fn incompatible_protocol_version_is_refused_up_front() {
-    let reader = script(&[json!({
-        "jsonrpc": "2.0", "id": 1, "method": "initialize",
-        "params": {"protocol_versions": ["euler-managed-process/999"]},
-    })]);
+    let reader = script(&[initialize_with_versions(
+        1,
+        json!(["euler-managed-process/999"]),
+    )]);
     let mut writer: TestWriter = Vec::new();
     let handlers: BTreeMap<String, Handler<TestReader, &mut TestWriter>> = BTreeMap::new();
 
@@ -331,6 +335,55 @@ fn incompatible_protocol_version_is_refused_up_front() {
     let messages = written_messages(&writer);
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["error"]["code"], -32602);
+}
+
+#[test]
+fn malformed_protocol_version_offers_are_refused_up_front() {
+    let malformed_versions = [
+        json!(PROTOCOL_VERSION),
+        json!({"version": PROTOCOL_VERSION}),
+        json!(1),
+        json!(true),
+        Value::Null,
+        json!([]),
+        json!([1]),
+        json!([""]),
+        json!([PROTOCOL_VERSION, 1]),
+        json!([PROTOCOL_VERSION, ""]),
+    ];
+
+    for versions in malformed_versions {
+        let reader = script(&[initialize_with_versions(1, versions)]);
+        let mut writer: TestWriter = Vec::new();
+        let handlers: BTreeMap<String, Handler<TestReader, &mut TestWriter>> = BTreeMap::new();
+
+        serve_with(reader, &mut writer, handlers).expect("refusal is a clean return");
+
+        let messages = written_messages(&writer);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["error"]["code"], -32602);
+    }
+}
+
+#[test]
+fn supported_protocol_can_be_offered_with_unknown_nonempty_versions() {
+    let [shutdown, exit] = shutdown_and_exit(3);
+    let reader = script(&[
+        initialize_with_versions(1, json!(["euler-managed-process/999", PROTOCOL_VERSION])),
+        initialized(),
+        command(2, "nope", Value::Null),
+        shutdown,
+        exit,
+    ]);
+    let mut writer: TestWriter = Vec::new();
+    let handlers: BTreeMap<String, Handler<TestReader, &mut TestWriter>> = BTreeMap::new();
+
+    serve_with(reader, &mut writer, handlers).expect("clean lifecycle");
+
+    let messages = written_messages(&writer);
+    assert_eq!(messages[0]["result"]["protocol_version"], PROTOCOL_VERSION);
+    assert_eq!(messages[1]["error"]["code"], -32601);
+    assert_eq!(messages[2]["result"], json!({}));
 }
 
 #[test]

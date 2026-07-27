@@ -61,7 +61,11 @@ class _Wire:
         ):
             raise ProtocolError("invalid protocol framing")
         try:
-            message = json.loads(line, parse_constant=_reject_non_finite_number)
+            message = json.loads(
+                line,
+                parse_constant=_reject_non_finite_number,
+                parse_float=_parse_finite_float,
+            )
         except (TypeError, ValueError, RecursionError) as error:
             raise ProtocolError("invalid protocol message") from error
         if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
@@ -364,3 +368,10 @@ def _error(wire: _Wire, request_id: Any, code: int, message: str) -> None:
 
 def _reject_non_finite_number(_value: str) -> None:
     raise ValueError("non-finite JSON number")
+
+
+def _parse_finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("non-finite JSON number")
+    return number
