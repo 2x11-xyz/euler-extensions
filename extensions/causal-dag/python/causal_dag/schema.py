@@ -5,8 +5,10 @@ this module holds its Python shape plus the v5 node model (per-kind status axes,
 first-class ``turns[]``) and edge vocabulary (§2-3).
 
 Serialization is canonical and deterministic: closed key sets in a fixed order,
-lists sorted by ``id``, ``source_ref_ids`` sorted and unique. ``dumps`` of a
-value equals ``dumps`` of its ``loads`` round-trip, byte for byte.
+lists sorted by ``id``, ``source_ref_ids`` sorted and unique. Canonical form is
+*compact* — no insignificant whitespace (``separators=(",", ":")``) — so the
+wire payload stays small; determinism does not depend on indentation. ``dumps``
+of a value equals ``dumps`` of its ``loads`` round-trip, byte for byte.
 """
 
 from __future__ import annotations
@@ -417,13 +419,15 @@ class Artifact:
 def dumps(artifact: Artifact) -> str:
     """Canonical, deterministic, strict JSON text (trailing newline included).
 
-    Runs the same shape validation as ``loads`` before writing: a scientific
-    record must never emit what it cannot re-read. ``allow_nan=False`` backs
-    that up at the JSON layer.
+    Compact: no insignificant whitespace, so the artifact fits the host's wire
+    caps with room to spare. Runs the same shape validation as ``loads`` before
+    writing: a scientific record must never emit what it cannot re-read.
+    ``allow_nan=False`` backs that up at the JSON layer.
     """
     d = artifact.to_dict()
     _validate_tree(d)
-    return json.dumps(d, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    return json.dumps(d, separators=(",", ":"), ensure_ascii=False,
+                      allow_nan=False) + "\n"
 
 
 # Closed key sets AND value types (§5): parsing rejects unknown/missing keys and

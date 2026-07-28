@@ -202,7 +202,8 @@ class RobustnessTest(unittest.TestCase):
 class StrictLoadsTest(unittest.TestCase):
     def test_nan_text_is_rejected(self):
         import re
-        text = re.sub(r'"branching_ratio": [0-9.]+', '"branching_ratio": NaN',
+        # Canonical form is compact (no space after the colon).
+        text = re.sub(r'"branching_ratio":[0-9.]+', '"branching_ratio":NaN',
                       dumps(build_valid()))
         self.assertIn("NaN", text)
         with self.assertRaises(ValueError):
