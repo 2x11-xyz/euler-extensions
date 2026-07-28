@@ -96,7 +96,11 @@ Honest degraded scaffolding, not analysis. Without the observer lane
   owned; permission/canvas events, `agent.spawn` / `agent.result` observer
   bookkeeping (R13), and our own `extension.artifact` / `context.slot.updated`
   self-events are excluded (the feedback loop the host filter already
-  forecloses, since `QUERY_KINDS` never requests them).
+  forecloses, since `QUERY_KINDS` never requests them). One self-event channel
+  a kind filter cannot catch: the host appends an `error` event when an
+  extension command fails, so `is_self_error` drops *this extension's own*
+  failure records before segmentation — a failing tick must not pollute its
+  own graph — while genuinely epistemic session errors stay owned.
 - **Segment** — `group_turns` cuts the page into turns (R1): the ownable span
   from one `model.call` to the next; a `user.message` opens its own turn. Empty
   spans (bookkeeping between boundaries) are dropped — clerical turns stay
