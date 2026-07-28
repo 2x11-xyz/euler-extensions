@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "causal-dag",
+  "display_name": "Causal DAG",
+  "extension_version": "0.5.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["python3", "python/extension.py"]
+  },
+  "capabilities": [
+    "provenance-read",
+    "artifact-write",
+    "fs-read",
+    "fs-write",
+    "context-slot"
+  ],
+  "commands": [
+    {
+      "name": "update",
+      "display_name": "Update projection",
+      "summary": "Project one bounded provenance page into the active causal-dag artifact.",
+      "required_capabilities": [
+        "provenance-read",
+        "artifact-write",
+        "fs-read",
+        "fs-write",
+        "context-slot"
+      ]
+    },
+    {
+      "name": "catch-up",
+      "display_name": "Catch up projection",
+      "summary": "Run bounded projection ticks until caught up or the host-request budget is spent; resumable.",
+      "required_capabilities": [
+        "provenance-read",
+        "artifact-write",
+        "fs-read",
+        "fs-write",
+        "context-slot"
+      ]
+    },
+    {
+      "name": "export",
+      "display_name": "Export projection",
+      "summary": "Render the active causal-dag artifact as json, dot, markdown, summary, or html.",
+      "required_capabilities": [
+        "fs-write",
+        "artifact-write"
+      ]
+    }
+  ]
+}
