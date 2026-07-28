@@ -11,14 +11,17 @@ SDKs live here as conveniences, never requirements.
 
 ## Status
 
-The Rust SDK (`sdks/rust/euler-managed-process-sdk`) and five converted
+The Rust SDK (`sdks/rust/euler-managed-process-sdk`) and converted Rust
 extensions are in and CI-covered: `session-export`, `diagnostics-report`,
-`code-swarm`, `maxproof`, and `autoresearch` — each verified end-to-end
-against a live Euler host with result parity to its formerly bundled
-counterpart. `causal-dag` is present as a spec-only package
-(`extensions/causal-dag`): its implementation is paused for a behavior
-redesign, and the package preserves the schemas and golden fixtures any
-rewrite must satisfy. The Python SDK migration is tracked in #1. Layout:
+`code-swarm`, `maxproof`, and `autoresearch`; each retains end-to-end result
+parity with its formerly bundled counterpart. The canonical Python SDK
+(`sdks/python/euler-managed-process-sdk`) is exercised by `python-proof`,
+`python-session-summary`, and `plan-todo`. Plan/todo is the first Python
+consumer of model-tool registration and terminal-idle contribution; its
+workflow policy remains entirely outside Euler core.
+
+`causal-dag` is present as a spec package (`extensions/causal-dag`), preserving
+the schemas and golden fixtures its Python implementation must satisfy. Layout:
 
 ```text
 extensions/<id>/    one extension per directory (Euler.extension.json + entrypoint)
