@@ -1,0 +1,7 @@
+[
+  {"v":1,"id":"missing-01","ts":"2026-07-30T00:00:00.000Z","session":"missing","agent":"root","run":"run-missing","parent":null,"kind":"run.started","payload":{"trigger":"direct"},"blobs":{}},
+  {"v":1,"id":"missing-02","ts":"2026-07-30T00:01:00.000Z","session":"missing","agent":"root","run":"run-missing","parent":"missing-01","kind":"model.result","payload":{"provider":"fixture","model":"fixture","content":"omitted","tool_calls":[],"stop_reason":"tool","usage":{"input_tokens":8000,"output_tokens":100}},"blobs":{}},
+  {"v":1,"id":"missing-03","ts":"2026-07-30T00:02:00.000Z","session":"missing","agent":"root","run":"run-missing","parent":"missing-02","kind":"model.result","payload":{"provider":"fixture","model":"fixture","content":"omitted","tool_calls":[],"stop_reason":"tool","usage":{"input_tokens":12000,"output_tokens":100}},"blobs":{}},
+  {"v":1,"id":"missing-04","ts":"2026-07-30T00:03:00.000Z","session":"missing","agent":"root","run":"run-missing","parent":"missing-03","kind":"model.result","payload":{"provider":"fixture","model":"fixture","content":"omitted","tool_calls":[],"stop_reason":"tool","usage":{"input_tokens":18000,"output_tokens":100}},"blobs":{}},
+  {"v":1,"id":"missing-05","ts":"2026-07-30T00:04:00.000Z","session":"missing","agent":"root","run":"run-missing","parent":"missing-04","kind":"model.result","payload":{"provider":"fixture","model":"fixture","content":"omitted","tool_calls":[],"stop_reason":"tool","usage":{"input_tokens":27000,"output_tokens":100}},"blobs":{}}
+]

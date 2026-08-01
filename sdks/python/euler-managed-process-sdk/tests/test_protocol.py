@@ -39,6 +39,7 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                 query["params"],
                 {
                     "after_event_id": "event-1",
+                    "through_event_id": "event-9",
                     "kinds": ["tool.result"],
                     "limit": 7,
                     "scan_limit": 19,
@@ -244,6 +245,20 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                     "child": child,
                     "children": children,
                 },
+            )
+            peer.finish()
+
+    def test_ordinary_query_omits_the_additive_upper_bound(self):
+        with self.peer() as peer:
+            peer.initialize()
+            peer.invoke("ordinary-query", {})
+            query = peer.read()
+            self.assertEqual(query["method"], "euler/host/query-provenance")
+            self.assertNotIn("through_event_id", query["params"])
+            peer.respond(query, result={"events": [], "truncated": False})
+            self.assertEqual(
+                peer.read()["result"],
+                {"events": [], "truncated": False},
             )
             peer.finish()
 

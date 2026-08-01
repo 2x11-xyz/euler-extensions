@@ -31,6 +31,12 @@ the session- and extension-namespaced private state surface governed by
 to Euler's canonical transcript/provenance event stream; it does not inject
 workflow text into model context.
 
+`Host.query_provenance(..., through_event_id=event_id)` applies an inclusive,
+filter-independent durable-prefix upper bound. The SDK omits that additive
+wire field when it is `None`, preserving ordinary-query compatibility with
+older `euler-managed-process/1` hosts. Request-tick extensions should pass the
+exact host-supplied cutoff on every page.
+
 `extension_model_text_is_format_safe(text)` exposes Euler's frozen Unicode-17
 format-spoof and separator predicate for extension-authored model-facing text.
 It intentionally leaves ordinary control-character, emptiness, and length

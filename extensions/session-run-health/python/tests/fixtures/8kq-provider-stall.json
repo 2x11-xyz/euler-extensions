@@ -1,0 +1,8 @@
+[
+  {"v":1,"id":"8kq-01","ts":"2026-07-30T00:00:00.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":null,"kind":"run.started","payload":{"trigger":"direct"},"blobs":{}},
+  {"v":1,"id":"8kq-02","ts":"2026-07-30T00:00:01.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":"8kq-01","kind":"user.message","payload":{"content":"redacted fixture input"},"blobs":{}},
+  {"v":1,"id":"8kq-03","ts":"2026-07-30T00:08:00.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":"8kq-02","kind":"tool.call","payload":{"id":"check-1","name":"run_shell","input":{"command":"cargo check"}},"blobs":{}},
+  {"v":1,"id":"8kq-04","ts":"2026-07-30T00:09:33.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":"8kq-03","kind":"tool.result","payload":{"id":"check-1","name":"run_shell","ok":true,"exit_code":101,"output":"omitted"},"blobs":{}},
+  {"v":1,"id":"8kq-05","ts":"2026-07-30T00:09:34.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":"8kq-04","kind":"model.call","payload":{"provider":"fixture","model":"fixture","canvas_items":4},"blobs":{}},
+  {"v":1,"id":"8kq-06","ts":"2026-07-30T09:33:34.000Z","session":"8kq","agent":"root","run":"run-8kq","parent":"8kq-05","kind":"error","payload":{"source":"provider","message":"omitted","category":"transport","provider_attempt_id":"attempt-1","timeout_stage":"semantic_idle"},"blobs":{}}
+]

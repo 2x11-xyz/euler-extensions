@@ -19,13 +19,17 @@ jobs:
           python -m py_compile \
             sdks/python/euler-managed-process-sdk/src/euler_managed_process_sdk/*.py \
             extensions/python-proof/python/extension.py \
-            extensions/python-session-summary/python/extension.py
+            extensions/python-session-summary/python/extension.py \
+            extensions/session-run-health/python/extension.py \
+            extensions/session-run-health/python/session_run_health/*.py
           python -m json.tool extensions/python-proof/Euler.extension.json >/dev/null
           python -m json.tool extensions/python-session-summary/Euler.extension.json >/dev/null
+          python -m json.tool extensions/session-run-health/Euler.extension.json >/dev/null
           python -m unittest discover -s sdks/python/euler-managed-process-sdk/tests -v
           python -m unittest discover -s tests -v
           python -m unittest discover -s extensions/causal-dag/python/tests -v
           python -m unittest discover -s extensions/plan-todo/python/tests -v
+          python -m unittest discover -s extensions/session-run-health/python/tests -v
   checks:
     runs-on: ubuntu-latest
     steps:

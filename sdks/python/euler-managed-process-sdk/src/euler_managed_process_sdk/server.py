@@ -123,22 +123,29 @@ class Host:
         self,
         *,
         after_event_id: Optional[str] = None,
+        through_event_id: Optional[str] = None,
         kinds: Optional[list[str]] = None,
         limit: int = 128,
         scan_limit: int = 1024,
         include_blob_fields: bool = False,
         blob_byte_limit: int = 1024 * 1024,
     ) -> dict[str, Any]:
+        params = {
+            "after_event_id": after_event_id,
+            "kinds": kinds or [],
+            "limit": limit,
+            "scan_limit": scan_limit,
+            "include_blob_fields": include_blob_fields,
+            "blob_byte_limit": blob_byte_limit,
+        }
+        # `through_event_id` is additive in euler-managed-process/1. Omit it
+        # for ordinary queries so clients remain compatible with older hosts;
+        # extensions that declare request_tick already require the new host.
+        if through_event_id is not None:
+            params["through_event_id"] = through_event_id
         return self._request(
             "euler/host/query-provenance",
-            {
-                "after_event_id": after_event_id,
-                "kinds": kinds or [],
-                "limit": limit,
-                "scan_limit": scan_limit,
-                "include_blob_fields": include_blob_fields,
-                "blob_byte_limit": blob_byte_limit,
-            },
+            params,
         )
 
     def read_diagnostics(self, *, tail_lines: int, max_bytes: int) -> dict[str, Any]:
