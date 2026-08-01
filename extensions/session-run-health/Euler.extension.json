@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "id": "session-run-health",
+  "display_name": "Session Run Health",
+  "extension_version": "0.1.0",
+  "runtime_kind": "managed-process",
+  "entrypoint": {
+    "command": ["python3", "-B", "-u", "python/extension.py"]
+  },
+  "capabilities": [
+    "provenance-read",
+    "extension-state",
+    "artifact-write",
+    "context-slot",
+    "plan-presentation"
+  ],
+  "commands": [
+    {
+      "name": "assess-run-health",
+      "display_name": "Assess run health",
+      "summary": "Fold bounded session evidence and publish a strategy checkpoint only when configured symptoms recur.",
+      "required_capabilities": [
+        "provenance-read",
+        "extension-state",
+        "artifact-write",
+        "context-slot",
+        "plan-presentation"
+      ],
+      "invocation": "agent-only"
+    }
+  ],
+  "request_tick": {
+    "command": "assess-run-health"
+  }
+}

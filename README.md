@@ -16,9 +16,10 @@ extensions are in and CI-covered: `session-export`, `diagnostics-report`,
 `code-swarm`, `maxproof`, and `autoresearch`; each retains end-to-end result
 parity with its formerly bundled counterpart. The canonical Python SDK
 (`sdks/python/euler-managed-process-sdk`) is exercised by `python-proof`,
-`python-session-summary`, and `plan-todo`. Plan/todo is the first Python
-consumer of model-tool registration and terminal-idle contribution; its
-workflow policy remains entirely outside Euler core.
+`python-session-summary`, `plan-todo`, and `session-run-health`. Plan/todo owns
+model-tool planning and terminal-idle continuation. Session-run-health owns a
+bounded pre-request strategy-checkpoint policy. Both workflows remain entirely
+outside Euler core.
 
 `causal-dag` is present as a spec package (`extensions/causal-dag`), preserving
 the schemas and golden fixtures its Python implementation must satisfy. Layout:

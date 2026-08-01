@@ -39,6 +39,7 @@ def exercise_host(context: CommandContext) -> dict[str, object]:
     host.progress("starting", 0.25)
     provenance = host.query_provenance(
         after_event_id="event-1",
+        through_event_id="event-9",
         kinds=["tool.result"],
         limit=7,
         scan_limit=19,
@@ -114,6 +115,10 @@ def wait_for_cancel(context: CommandContext) -> dict[str, object]:
     return {"unexpected": True}
 
 
+def ordinary_query(context: CommandContext) -> dict[str, object]:
+    return context.host.query_provenance()
+
+
 def invalid_state_result(context: CommandContext) -> dict[str, object]:
     context.host.state_dir()
     return {"unexpected": True}
@@ -167,6 +172,7 @@ if __name__ == "__main__":
             "exercise-host": exercise_host,
             "catch-host-error": catch_host_error,
             "wait-for-cancel": wait_for_cancel,
+            "ordinary-query": ordinary_query,
             "invalid-state-result": invalid_state_result,
             "catch-inbound-protocol-error": catch_inbound_protocol_error,
             "echo-input": echo_input,

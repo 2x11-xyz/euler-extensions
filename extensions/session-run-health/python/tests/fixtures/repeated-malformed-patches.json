@@ -1,0 +1,11 @@
+[
+  {"v":1,"id":"patch-01","ts":"2026-07-30T00:00:00.000Z","session":"patch","agent":"root","run":"run-patch","parent":null,"kind":"run.started","payload":{"trigger":"direct"},"blobs":{}},
+  {"v":1,"id":"patch-01-user","ts":"2026-07-30T00:00:00.100Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-01","kind":"user.message","payload":{"content":"PRIVATE USER REQUEST"},"blobs":{}},
+  {"v":1,"id":"patch-01-reasoning","ts":"2026-07-30T00:00:00.200Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-01-user","kind":"model.reasoning","payload":{"content":"PRIVATE MODEL REASONING"},"blobs":{}},
+  {"v":1,"id":"patch-01-call","ts":"2026-07-30T00:00:00.300Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-01-reasoning","kind":"tool.call","payload":{"id":"PRIVATE TOOL CALL ID","name":"apply_patch","input":{"patch":"PRIVATE TOOL INPUT"}},"blobs":{}},
+  {"v":1,"id":"patch-02","ts":"2026-07-30T00:00:01.000Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-01-call","kind":"tool.result","payload":{"id":"PRIVATE TOOL CALL ID","name":"apply_patch","ok":false,"error":"first raw error must not escape"},"blobs":{}},
+  {"v":1,"id":"patch-02-call","ts":"2026-07-30T00:01:00.000Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-02","kind":"tool.call","payload":{"id":"patch-b","name":"apply_patch","input":{"patch":"PRIVATE SECOND PATCH"}},"blobs":{}},
+  {"v":1,"id":"patch-03","ts":"2026-07-30T00:01:01.000Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-02-call","kind":"tool.result","payload":{"id":"patch-b","name":"apply_patch","ok":false,"error":"different raw wording"},"blobs":{}},
+  {"v":1,"id":"patch-03-call","ts":"2026-07-30T00:02:00.000Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-03","kind":"tool.call","payload":{"id":"patch-c","name":"apply_patch","input":{"patch":"PRIVATE THIRD PATCH"}},"blobs":{}},
+  {"v":1,"id":"patch-04","ts":"2026-07-30T00:02:01.000Z","session":"patch","agent":"root","run":"run-patch","parent":"patch-03-call","kind":"tool.result","payload":{"id":"patch-c","name":"apply_patch","ok":false,"error":"third raw error"},"blobs":{}}
+]
