@@ -18,7 +18,9 @@ parity with its formerly bundled counterpart. The canonical Python SDK
 (`sdks/python/euler-managed-process-sdk`) is exercised by `python-proof`,
 `python-session-summary`, and `plan-todo`. Plan/todo is the first Python
 consumer of model-tool registration and terminal-idle contribution; its
-workflow policy remains entirely outside Euler core.
+workflow policy remains entirely outside Euler core. `code-swarm` now owns its
+`code_swarm_review` model tool and reviewer config (Euler ADR 0022) and needs
+an Euler with extension config documents and model-target arguments.
 
 `causal-dag` is present as a spec package (`extensions/causal-dag`), preserving
 the schemas and golden fixtures its Python implementation must satisfy. Layout:

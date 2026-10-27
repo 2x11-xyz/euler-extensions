@@ -173,6 +173,24 @@ pub enum PlanItemStatus {
     Completed,
 }
 
+/// Which of the calling extension's config documents a write replaces: the
+/// workspace's `.euler/extensions/<id>/config.json` or the Euler home's
+/// `extensions/<id>/config.json`. The host derives `<id>`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExtensionConfigTier {
+    Project,
+    User,
+}
+
+/// The calling extension's two config documents; `None` means the file does
+/// not exist. Config is data, not authority.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExtensionConfigDocuments {
+    pub project: Option<Map<String, Value>>,
+    pub user: Option<Map<String, Value>>,
+}
+
 /// Capability-gated host APIs available during a command invocation.
 pub struct Host<'wire, R, W> {
     wire: &'wire mut Wire<R, W>,
@@ -289,6 +307,39 @@ impl<R: BufRead, W: Write> Host<'_, R, W> {
             serde_json::to_value(presentation).map_err(|error| protocol(error.to_string()))?;
         self.request("euler/host/update-plan-presentation", params)
             .map(|_| ())
+    }
+
+    /// Read the calling extension's project and user config documents. Needs
+    /// no capability. The host refuses a malformed, oversized, or symlinked
+    /// document rather than reporting it as absent.
+    pub fn read_extension_config(&mut self) -> Result<ExtensionConfigDocuments, Error> {
+        let result = self.request("euler/host/read-extension-config", json!({}))?;
+        let invalid = || protocol("host returned invalid extension config documents");
+        let object = result.as_object().ok_or_else(invalid)?;
+        let document = |tier: &str| match object.get(tier) {
+            Some(Value::Null) => Ok(None),
+            Some(Value::Object(document)) => Ok(Some(document.clone())),
+            _ => Err(invalid()),
+        };
+        Ok(ExtensionConfigDocuments {
+            project: document("project")?,
+            user: document("user")?,
+        })
+    }
+
+    /// Replace one of the calling extension's config documents. Requires
+    /// `config-write`; the host enforces the document bounds, refuses secret
+    /// values, and governs project-tier writes by who started the command.
+    pub fn write_extension_config(
+        &mut self,
+        tier: ExtensionConfigTier,
+        value: &Map<String, Value>,
+    ) -> Result<(), Error> {
+        self.request(
+            "euler/host/write-extension-config",
+            json!({"tier": tier, "value": value}),
+        )
+        .map(|_| ())
     }
 
     pub fn spawn_agent(&mut self, task: &Value) -> Result<Value, Error> {
