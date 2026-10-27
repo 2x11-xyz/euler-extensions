@@ -51,7 +51,6 @@
                 "minLength": 1,
                 "maxLength": 256
               },
-              "minItems": 1,
               "maxItems": 5
             },
             "max_tokens": {
@@ -96,7 +95,7 @@
     {
       "name": "import-user",
       "display_name": "Import a legacy default CodeSwarm config",
-      "summary": "Import a legacy ~/.euler/code-swarm.json reviewer config (as JSON input) into your default config.",
+      "summary": "Import a legacy reviewer config (the code-swarm.json in the Euler home, passed as JSON input) into your default config.",
       "required_capabilities": ["config-write"],
       "invocation": "user"
     }

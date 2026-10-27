@@ -316,7 +316,8 @@ fn unconfigured_review_returns_an_honest_not_run_result_without_spawning() {
         "do not guess providers or models",
         "code-swarm.configure",
         "code-swarm.configure-user",
-        "code-swarm.import --input-file .euler/code-swarm.json",
+        "euler extension run code-swarm.import <session> --input-file .euler/code-swarm.json",
+        "/code-swarm.import",
     ] {
         assert!(
             message.contains(fragment),
@@ -345,6 +346,68 @@ fn invalid_config_returns_a_not_run_result_and_never_falls_through() {
     // A document the host refuses (malformed, oversized, symlinked).
     let payload = not_run_review(|session, read| session.respond_error(read));
     assert_eq!(payload["reason"], "invalid_config");
+}
+
+#[test]
+fn failed_reviewer_batch_returns_a_not_run_result_without_writing() {
+    let mut session = Session::spawn();
+    session.initialize();
+    session.command(
+        "review",
+        json!({"models": ["unauthenticated::model"], "focus": "question", "context": "material"}),
+    );
+    let spawn = session.recv();
+    assert_eq!(spawn["method"], "euler/host/spawn-agents");
+    session.respond_error(&spawn);
+    // The next message is the command result, not an artifact write.
+    let payload = session.command_result();
+    session.shutdown_and_exit();
+    assert_eq!(payload["review_ran"], json!(false), "{payload}");
+    assert_eq!(payload["reason"], "reviewer_batch_failed");
+    let message = payload["message"].as_str().expect("message");
+    for fragment in [
+        "do not guess providers or models",
+        "/login <provider>",
+        "code-swarm.configure",
+    ] {
+        assert!(
+            message.contains(fragment),
+            "missing `{fragment}`: {message}"
+        );
+    }
+}
+
+#[test]
+fn cancelled_or_malformed_reviewer_batch_ends_the_command() {
+    // Cancellation while the batch runs is a cancelled command, not a not-run
+    // result.
+    let mut session = Session::spawn();
+    session.initialize();
+    session.command(
+        "review",
+        json!({"models": ["a::b"], "focus": "question", "context": "material"}),
+    );
+    let spawn = session.recv();
+    assert_eq!(spawn["method"], "euler/host/spawn-agents");
+    session.send(&json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 2}}));
+    let result = session.recv();
+    assert_eq!(result["id"], json!(2));
+    assert_eq!(result["error"]["code"], json!(-32800), "{result}");
+    session.shutdown_and_exit();
+
+    // A malformed host answer is a protocol failure, not a not-run result.
+    let mut session = Session::spawn();
+    session.initialize();
+    session.command(
+        "review",
+        json!({"models": ["a::b"], "focus": "question", "context": "material"}),
+    );
+    let spawn = session.recv();
+    session.respond(&spawn, json!("not outcomes"));
+    let result = session.recv();
+    assert_eq!(result["id"], json!(2));
+    assert_eq!(result["error"]["code"], json!(-32000), "{result}");
+    session.shutdown_and_exit();
 }
 
 #[test]
@@ -471,7 +534,8 @@ fn manifest_declares_the_review_tool_and_config_commands() {
     let properties = &tool["input_schema"]["properties"];
     assert_eq!(properties["focus"]["maxLength"], json!(7 * 1024));
     assert_eq!(properties["context"]["maxLength"], json!(256 * 1024));
-    assert_eq!(properties["models"]["minItems"], json!(1));
+    // An empty list is accepted and means "no override" (config resolves).
+    assert!(properties["models"].get("minItems").is_none());
     assert_eq!(properties["models"]["maxItems"], json!(5));
     assert_eq!(properties["personas"]["maxItems"], json!(5));
     assert_eq!(properties["max_tokens"]["minimum"], json!(1));

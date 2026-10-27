@@ -14,8 +14,8 @@ budgets (ADR 0022).
   agent gathers it with ordinary tools first.
 - `personas` (optional): 1 to 5 of `correctness`, `safety`, `tests`. Defaults
   rotate through all three.
-- `models` (optional): 1 to 5 `provider::model` targets, only when the user
-  named them.
+- `models` (optional): up to 5 `provider::model` targets, only when the user
+  named them. An empty list means no override.
 - `max_tokens` (optional): per-reviewer output budget.
 
 The tool declares `max_input_bytes` of 320 KiB, the host cap, so a full
@@ -31,7 +31,8 @@ A review that ran returns `"review_ran": true` with the K-of-N summary, the
 artifact reference, and each reviewer's ok/error and findings (bounded to
 16 KiB per reviewer in the result; the artifact keeps the full text). A review
 that did not run returns `"review_ran": false` with a `reason`
-(`unconfigured`, `invalid_config`, `invalid_input`, `input_too_large`) and a
+(`unconfigured`, `invalid_config`, `invalid_input`, `input_too_large`,
+`reviewer_batch_failed`) and a
 `message` the agent relays to the user. These are successful results because
 managed-process command errors reach the model only as a generic failure.
 

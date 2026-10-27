@@ -45,7 +45,8 @@ const CONFIG_VERSION: u64 = 1;
 const MODELS_INPUT_KEY: &str = "models";
 /// The swarm never guesses targets: without explicit models or a configured
 /// tier, the model is told to relay the options to the user.
-const UNCONFIGURED_MESSAGE: &str = "code-swarm is not configured: no reviewer models are set for this project or user, and none were passed. Relay these options to the user; do not guess providers or models. The user picks 1-5 reviewers with the code-swarm.configure command (this project; its TUI slash command opens the authenticated-model picker, or pass --models provider::model,...), or code-swarm.configure-user for a global default. A legacy reviewer file imports with code-swarm.import --input-file .euler/code-swarm.json (or code-swarm.import-user --input-file ~/.euler/code-swarm.json). Then ask for the review again. Reviews are run by the agent; there is no run command.";
+const UNCONFIGURED_MESSAGE: &str = "code-swarm is not configured: no reviewer models are set for this project or user, and none were passed. Relay these options to the user; do not guess providers or models. The user picks 1-5 reviewers with the code-swarm.configure command (this project; its TUI slash command opens the authenticated-model picker, or pass --models provider::model,...), or code-swarm.configure-user for a global default. A legacy reviewer file imports with euler extension run code-swarm.import <session> --input-file .euler/code-swarm.json, or the same with code-swarm.import-user and the code-swarm.json in the Euler home (~/.euler by default); in the TUI, run /code-swarm.import or /code-swarm.import-user followed by the file's JSON object. Then ask for the review again. Reviews are run by the agent; there is no run command.";
+const REVIEWER_BATCH_FAILED_MESSAGE: &str = "code-swarm got no reviewer results: the host failed the reviewer batch (usually because a reviewer's provider is not authenticated or its model is unknown, though the host does not say which cause applied). No review result is available. Relay this to the user; do not guess providers or models. The user can sign in with /login <provider> in the TUI or euler login --provider <provider>, change the reviewers with code-swarm.configure (project) or code-swarm.configure-user (user), or name other models for this review.";
 const CONFIG_REMEDIATION: &str = "Relay this to the user; do not guess providers or models. Rewrite the reviewer set with code-swarm.configure (project) or code-swarm.configure-user (user), or fix or delete .euler/extensions/code-swarm/config.json in the workspace or extensions/code-swarm/config.json in the Euler home.";
 
 /// Per-reviewer findings bound on the command/tool result. The consolidated
@@ -102,7 +103,19 @@ fn execute<R: BufRead, W: Write>(
         .iter()
         .map(|task| serde_json::to_value(task).map_err(|error| Error::Command(error.to_string())))
         .collect::<Result<Vec<_>, _>>()?;
-    let outcome_values = host.spawn_agents(&task_values)?;
+    // A failed batch becomes honest not-run text instead of a generic command
+    // failure; the host's error does not name the cause.
+    let outcome_values = match host.spawn_agents(&task_values) {
+        Ok(values) => values,
+        Err(Error::Host(_)) => {
+            return Ok(ReviewNotRun::new(
+                NotRunReason::ReviewerBatchFailed,
+                REVIEWER_BATCH_FAILED_MESSAGE,
+            )
+            .to_result())
+        }
+        Err(error) => return Err(error),
+    };
     let outcomes = parse_outcomes(outcome_values)?;
     let reviewers = personas
         .into_iter()
@@ -122,6 +135,7 @@ enum NotRunReason {
     InvalidConfig,
     InvalidInput,
     InputTooLarge,
+    ReviewerBatchFailed,
 }
 
 impl NotRunReason {
@@ -131,6 +145,7 @@ impl NotRunReason {
             Self::InvalidConfig => "invalid_config",
             Self::InvalidInput => "invalid_input",
             Self::InputTooLarge => "input_too_large",
+            Self::ReviewerBatchFailed => "reviewer_batch_failed",
         }
     }
 }
@@ -372,8 +387,7 @@ impl ReviewerConfig {
     /// Parse a config document: `{"version": 1, "reviewers": [{"target",
     /// "persona"?}], "max_tokens"?}`.
     fn parse(document: &Map<String, Value>) -> Result<Self, String> {
-        reject_unknown_fields(document, &["version", "reviewers", "max_tokens"])
-            .map_err(command_message)?;
+        reject_unknown_config_fields(document, &["version", "reviewers", "max_tokens"])?;
         match document.get("version").and_then(Value::as_u64) {
             Some(CONFIG_VERSION) => {}
             Some(version) => return Err(format!("unsupported config version {version}")),
@@ -389,7 +403,7 @@ impl ReviewerConfig {
                 let entry = entry
                     .as_object()
                     .ok_or_else(|| "each reviewer must be an object".to_owned())?;
-                reject_unknown_fields(entry, &["target", "persona"]).map_err(command_message)?;
+                reject_unknown_config_fields(entry, &["target", "persona"])?;
                 let target = optional_string(entry, "target")
                     .map_err(command_message)?
                     .ok_or_else(|| "each reviewer needs a target".to_owned())?;
@@ -717,8 +731,11 @@ impl ReviewRequest {
                 ),
             ));
         }
+        // An empty model-facing list names no one-off override, so config
+        // resolution runs (the former core tool's behavior).
         let models = match object.get("models") {
             None | Some(Value::Null) => None,
+            Some(Value::Array(values)) if values.is_empty() => None,
             Some(value) => Some(parse_models(value).map_err(invalid)?),
         };
         let personas = match object.get("personas") {
@@ -757,9 +774,6 @@ fn parse_models(value: &Value) -> Result<Vec<ModelTarget>, Error> {
     let values = value
         .as_array()
         .ok_or_else(|| input_error("models must be an array of provider::model strings"))?;
-    if values.is_empty() {
-        return Err(input_error("models must not be empty when provided"));
-    }
     if values.len() > MAX_SWARM_AGENTS {
         return Err(input_error(format!(
             "models lists {} targets; the swarm cap is {MAX_SWARM_AGENTS}",
@@ -923,6 +937,16 @@ fn reject_unknown_fields(
         }
     }
     Ok(())
+}
+
+fn reject_unknown_config_fields(
+    object: &Map<String, Value>,
+    allowed: &[&'static str],
+) -> Result<(), String> {
+    match object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        Some(key) => Err(format!("unknown config field `{key}`")),
+        None => Ok(()),
+    }
 }
 
 fn parse_positive_u64(
@@ -1232,7 +1256,6 @@ mod tests {
     #[test]
     fn review_rejects_bad_model_targets_and_over_cap() {
         for (models, fragment) in [
-            (json!([]), "must not be empty"),
             (json!(["no-separator"]), "provider::model"),
             (json!(["::model"]), "both provider and model"),
             (json!(["provider::"]), "both provider and model"),
@@ -1383,6 +1406,21 @@ mod tests {
     }
 
     #[test]
+    fn empty_models_list_resolves_reviewers_from_config() {
+        let user = json!({"version": 1, "reviewers": [{"target": "user::model"}]});
+        let input = plan_review(&json!({"focus": "q", "context": "c", "models": []}), || {
+            Ok(documents(None, Some(user)))
+        })
+        .expect("config tier");
+        assert_eq!(input.models[0].to_string(), "user::model");
+
+        let not_run = not_run(&json!({"focus": "q", "context": "c", "models": []}), || {
+            Ok(ExtensionConfigDocuments::default())
+        });
+        assert_eq!(not_run.reason, NotRunReason::Unconfigured);
+    }
+
+    #[test]
     fn explicit_models_win_without_reading_config() {
         let input = explicit(&json!({"focus": "q", "context": "c", "models": ["one::off"]}));
         assert_eq!(input.models[0].to_string(), "one::off");
@@ -1419,7 +1457,7 @@ mod tests {
             ),
             (
                 json!({"version": 1, "reviewers": [{"target": "a::b"}], "extra": true}),
-                "unknown input field `extra`",
+                "unknown config field `extra`",
             ),
         ] {
             let not_run = not_run(&review_request(), || {
