@@ -1,16 +1,22 @@
 //! Euler CodeSwarm review extension over the managed-process protocol.
 //!
-//! A faithful port of the bundled in-process `code-swarm` extension. The one
-//! agent-only command, `review`, builds bounded reviewer task briefs from the
-//! calling agent's explicit input (focus/context/models validation, a hard cap
-//! of five reviewer agents, a persona prefix), runs one concurrent
-//! `spawn_agents` batch, and consolidates the outcomes into the
-//! `euler.code_swarm.review_report.v1` artifact. Input caps, unconfigured
-//! behaviour, artifact schema, and result shape are unchanged from the bundled
-//! crate; only the host boundary moved from the in-process `HostApi` trait to
-//! the managed-process wire.
+//! The agent-only `review` command is the `code_swarm_review` model tool
+//! (ADR 0022). It resolves reviewers (explicit `models`, then the project
+//! config document, then the user config document, then an honest
+//! unconfigured result), builds bounded reviewer task briefs (a hard cap of
+//! five reviewer agents, a persona prefix), runs one concurrent `spawn_agents`
+//! batch, and consolidates the outcomes into the
+//! `euler.code_swarm.review_report.v1` artifact.
+//!
+//! The `configure`, `configure-user`, `import`, and `import-user` user
+//! commands write the reviewer config through the host's extension config
+//! documents. Config is data, not authority: spawning still rides the
+//! `agent-spawn` permission flow.
 
-use euler_managed_process_sdk::{serve, ArtifactWrite, CommandContext, Error, Handler, Host};
+use euler_managed_process_sdk::{
+    serve, ArtifactWrite, CommandContext, Error, ExtensionConfigDocuments, ExtensionConfigTier,
+    Handler, Host,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -18,6 +24,10 @@ use std::io::{BufRead, Write};
 
 const DISPLAY_NAME: &str = "CodeSwarm Review";
 const REVIEW_COMMAND: &str = "review";
+const CONFIGURE_COMMAND: &str = "configure";
+const CONFIGURE_USER_COMMAND: &str = "configure-user";
+const IMPORT_COMMAND: &str = "import";
+const IMPORT_USER_COMMAND: &str = "import-user";
 const REVIEW_REPORT_SCHEMA: &str = "euler.code_swarm.review_report.v1";
 const REVIEW_REPORT_MEDIA_TYPE: &str = "application/vnd.euler.code-swarm.review.v1+json";
 /// Leaves room for the fixed reviewer instruction in the bounded task brief.
@@ -27,10 +37,17 @@ const DEFAULT_MAX_TOKENS: u64 = 8192;
 const PERSONA_PREFIX: &str = "code-swarm-";
 /// Hard cap on reviewer agents per swarm (matches the prototype's limit).
 const MAX_SWARM_AGENTS: usize = 5;
-/// Backstop for a direct invocation that dodged the config-resolving entry
-/// seam (the `code_swarm_review` tool pre-empts this with
-/// `euler_core::UNCONFIGURED_SWARM_ERROR`). The swarm never guesses targets.
-const UNCONFIGURED_MESSAGE: &str = "code-swarm review needs explicit reviewer models: supply 1-5 provider::model targets, or configure a persistent set with /code-swarm in the TUI";
+/// The reviewer config document shape, unchanged from the legacy
+/// `.euler/code-swarm.json` file so a legacy document imports as-is.
+const CONFIG_VERSION: u64 = 1;
+/// Configure commands take their targets under this input key (the manifest's
+/// `model-targets` argument flag).
+const MODELS_INPUT_KEY: &str = "models";
+/// The swarm never guesses targets: without explicit models or a configured
+/// tier, the model is told to relay the options to the user.
+const UNCONFIGURED_MESSAGE: &str = "code-swarm is not configured: no reviewer models are set for this project or user, and none were passed. Relay these options to the user; do not guess providers or models. The user picks 1-5 reviewers with the code-swarm.configure command (this project; its TUI slash command opens the authenticated-model picker, or pass --models provider::model,...), or code-swarm.configure-user for a global default. A legacy reviewer file imports with euler extension run code-swarm.import <session> --input-file .euler/code-swarm.json, or the same with code-swarm.import-user and the code-swarm.json in the Euler home (~/.euler by default); in the TUI, run /code-swarm.import or /code-swarm.import-user followed by the file's JSON object. Then ask for the review again. Reviews are run by the agent; there is no run command.";
+const REVIEWER_BATCH_FAILED_MESSAGE: &str = "code-swarm got no reviewer results: the host failed the reviewer batch (usually because a reviewer's provider is not authenticated or its model is unknown, though the host does not say which cause applied). No review result is available. Relay this to the user; do not guess providers or models. The user can sign in with /login <provider> in the TUI or euler login --provider <provider>, change the reviewers with code-swarm.configure (project) or code-swarm.configure-user (user), or name other models for this review.";
+const CONFIG_REMEDIATION: &str = "Relay this to the user; do not guess providers or models. Rewrite the reviewer set with code-swarm.configure (project) or code-swarm.configure-user (user), or fix or delete .euler/extensions/code-swarm/config.json in the workspace or extensions/code-swarm/config.json in the Euler home.";
 
 /// Per-reviewer findings bound on the command/tool result. The consolidated
 /// artifact carries the full text; the result never silently clips.
@@ -42,20 +59,39 @@ fn main() {
     let mut handlers: BTreeMap<String, Handler<std::io::StdinLock<'static>, std::io::Stdout>> =
         BTreeMap::new();
     handlers.insert(REVIEW_COMMAND.to_owned(), Box::new(execute));
+    handlers.insert(
+        CONFIGURE_COMMAND.to_owned(),
+        Box::new(|context, host| execute_configure(context, host, ExtensionConfigTier::Project)),
+    );
+    handlers.insert(
+        CONFIGURE_USER_COMMAND.to_owned(),
+        Box::new(|context, host| execute_configure(context, host, ExtensionConfigTier::User)),
+    );
+    handlers.insert(
+        IMPORT_COMMAND.to_owned(),
+        Box::new(|context, host| execute_import(context, host, ExtensionConfigTier::Project)),
+    );
+    handlers.insert(
+        IMPORT_USER_COMMAND.to_owned(),
+        Box::new(|context, host| execute_import(context, host, ExtensionConfigTier::User)),
+    );
     serve(handlers);
 }
 
-/// The whole swarm in one command: build reviewer tasks, run them as one
-/// concurrent `Host::spawn_agents` batch, and consolidate the outcomes into the
-/// review artifact. Orchestration lives here, not in a host-side state machine;
-/// the `code_swarm_review` tool — this command's only entry seam, since the
-/// command is agent-only — resolves config and supplies the exact review
-/// material in its input.
+/// The whole swarm in one command: resolve reviewers, build reviewer tasks,
+/// run them as one concurrent `Host::spawn_agents` batch, and consolidate the
+/// outcomes into the review artifact. A review that cannot run returns a
+/// `review_ran: false` result instead of an error, because managed-process
+/// command errors reach the model only as a generic failure.
 fn execute<R: BufRead, W: Write>(
     context: &CommandContext,
     host: &mut Host<'_, R, W>,
 ) -> Result<Value, Error> {
-    let input = ReviewInput::parse(&context.input)?;
+    let input = match plan_review(&context.input, || host.read_extension_config()) {
+        Ok(input) => input,
+        Err(ReviewFailure::NotRun(not_run)) => return Ok(not_run.to_result()),
+        Err(ReviewFailure::Host(error)) => return Err(error),
+    };
     let tasks = input.tasks();
     let personas = tasks
         .iter()
@@ -67,7 +103,19 @@ fn execute<R: BufRead, W: Write>(
         .iter()
         .map(|task| serde_json::to_value(task).map_err(|error| Error::Command(error.to_string())))
         .collect::<Result<Vec<_>, _>>()?;
-    let outcome_values = host.spawn_agents(&task_values)?;
+    // A failed batch becomes honest not-run text instead of a generic command
+    // failure; the host's error does not name the cause.
+    let outcome_values = match host.spawn_agents(&task_values) {
+        Ok(values) => values,
+        Err(Error::Host(_)) => {
+            return Ok(ReviewNotRun::new(
+                NotRunReason::ReviewerBatchFailed,
+                REVIEWER_BATCH_FAILED_MESSAGE,
+            )
+            .to_result())
+        }
+        Err(error) => return Err(error),
+    };
     let outcomes = parse_outcomes(outcome_values)?;
     let reviewers = personas
         .into_iter()
@@ -77,6 +125,355 @@ fn execute<R: BufRead, W: Write>(
     let report = build_report(&input, &reviewers);
     let record = host.write_artifact(&report.write)?;
     Ok(build_result(&record, &reviewers))
+}
+
+/// Why a review did not run. Each reason carries honest text the model
+/// relays; none is a guess at targets.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NotRunReason {
+    Unconfigured,
+    InvalidConfig,
+    InvalidInput,
+    InputTooLarge,
+    ReviewerBatchFailed,
+}
+
+impl NotRunReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Unconfigured => "unconfigured",
+            Self::InvalidConfig => "invalid_config",
+            Self::InvalidInput => "invalid_input",
+            Self::InputTooLarge => "input_too_large",
+            Self::ReviewerBatchFailed => "reviewer_batch_failed",
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ReviewNotRun {
+    reason: NotRunReason,
+    message: String,
+}
+
+impl ReviewNotRun {
+    fn new(reason: NotRunReason, message: impl Into<String>) -> Self {
+        Self {
+            reason,
+            message: message.into(),
+        }
+    }
+
+    fn to_result(&self) -> Value {
+        json!({
+            "review_ran": false,
+            "reason": self.reason.as_str(),
+            "message": self.message,
+        })
+    }
+}
+
+#[derive(Debug)]
+enum ReviewFailure {
+    /// The review did not run; the model receives the honest text.
+    NotRun(ReviewNotRun),
+    /// A host or protocol failure (including cancellation) that ends the
+    /// command.
+    Host(Error),
+}
+
+impl From<ReviewNotRun> for ReviewFailure {
+    fn from(not_run: ReviewNotRun) -> Self {
+        Self::NotRun(not_run)
+    }
+}
+
+/// Parse the model-tool input and resolve reviewers. Config is read only
+/// when the call names no explicit models, so a broken config never blocks a
+/// one-off review.
+fn plan_review(
+    value: &Value,
+    read_config: impl FnOnce() -> Result<ExtensionConfigDocuments, Error>,
+) -> Result<ReviewInput, ReviewFailure> {
+    let request = ReviewRequest::parse(value)?;
+    if let Some(models) = request.models {
+        return Ok(ReviewInput {
+            charters: request.personas.unwrap_or_else(|| CHARTERS.to_vec()),
+            models,
+            focus: request.focus,
+            context: request.context,
+            max_tokens: request.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
+        });
+    }
+    let documents = match read_config() {
+        Ok(documents) => documents,
+        // The host refuses a malformed, oversized, or symlinked document; its
+        // error text does not cross the wire, so the message names the likely
+        // causes without claiming which one applied.
+        Err(Error::Host(_)) => {
+            return Err(ReviewNotRun::new(
+                NotRunReason::InvalidConfig,
+                format!(
+                    "code-swarm could not read its reviewer config: the host refused to read a config document (usually because it is malformed, oversized, or not a regular file). {CONFIG_REMEDIATION}"
+                ),
+            )
+            .into())
+        }
+        Err(error) => return Err(ReviewFailure::Host(error)),
+    };
+    let configured = [("project", documents.project), ("user", documents.user)]
+        .into_iter()
+        .find_map(|(tier, document)| document.map(|document| (tier, document)));
+    let Some((tier, document)) = configured else {
+        return Err(ReviewNotRun::new(NotRunReason::Unconfigured, UNCONFIGURED_MESSAGE).into());
+    };
+    let config = ReviewerConfig::parse(&document).map_err(|error| {
+        ReviewNotRun::new(
+            NotRunReason::InvalidConfig,
+            format!("the {tier} code-swarm config is invalid: {error}. {CONFIG_REMEDIATION}"),
+        )
+    })?;
+    let charters = request
+        .personas
+        .or_else(|| config.charters())
+        .unwrap_or_else(|| CHARTERS.to_vec());
+    Ok(ReviewInput {
+        charters,
+        models: config
+            .reviewers
+            .into_iter()
+            .map(|reviewer| reviewer.target)
+            .collect(),
+        focus: request.focus,
+        context: request.context,
+        max_tokens: request
+            .max_tokens
+            .or(config.max_tokens)
+            .unwrap_or(DEFAULT_MAX_TOKENS),
+    })
+}
+
+/// A configure command: replace one tier with 1-5 host-validated targets.
+/// Like the former picker, it writes targets only (no personas or budget).
+fn execute_configure<R: BufRead, W: Write>(
+    context: &CommandContext,
+    host: &mut Host<'_, R, W>,
+    tier: ExtensionConfigTier,
+) -> Result<Value, Error> {
+    let config = match configure_input(&context.input) {
+        Ok(config) => config,
+        Err(message) => return Ok(config_not_written("invalid_input", message)),
+    };
+    write_reviewer_config(host, tier, &config)
+}
+
+/// An import command: the input is a legacy `.euler/code-swarm.json`
+/// document, which shares the config document shape.
+fn execute_import<R: BufRead, W: Write>(
+    context: &CommandContext,
+    host: &mut Host<'_, R, W>,
+    tier: ExtensionConfigTier,
+) -> Result<Value, Error> {
+    let config = match context
+        .input
+        .as_object()
+        .ok_or_else(|| "the legacy config must be a JSON object".to_owned())
+        .and_then(ReviewerConfig::parse)
+    {
+        Ok(config) => config,
+        Err(error) => {
+            return Ok(config_not_written(
+                "invalid_legacy_config",
+                format!("the legacy code-swarm config is invalid: {error}"),
+            ))
+        }
+    };
+    write_reviewer_config(host, tier, &config)
+}
+
+fn configure_input(input: &Value) -> Result<ReviewerConfig, String> {
+    let object = input
+        .as_object()
+        .ok_or_else(|| "configure input must be a JSON object".to_owned())?;
+    if let Some(key) = object.keys().find(|key| key.as_str() != MODELS_INPUT_KEY) {
+        return Err(format!("unknown configure input field `{key}`"));
+    }
+    let targets = object
+        .get(MODELS_INPUT_KEY)
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("configure requires --{MODELS_INPUT_KEY} provider::model,..."))?;
+    let reviewers = targets
+        .iter()
+        .map(|target| {
+            let target = target
+                .as_str()
+                .ok_or_else(|| format!("{MODELS_INPUT_KEY} must be provider::model strings"))?;
+            Ok(ConfiguredReviewer {
+                target: parse_model_target(target).map_err(command_message)?,
+                persona: None,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    ReviewerConfig::new(reviewers, None)
+}
+
+fn write_reviewer_config<R: BufRead, W: Write>(
+    host: &mut Host<'_, R, W>,
+    tier: ExtensionConfigTier,
+    config: &ReviewerConfig,
+) -> Result<Value, Error> {
+    host.write_extension_config(tier, &config.to_document())?;
+    Ok(json!({
+        "written": true,
+        "tier": tier_name(tier),
+        "reviewers": config.targets(),
+    }))
+}
+
+fn config_not_written(reason: &str, message: impl Into<String>) -> Value {
+    json!({"written": false, "reason": reason, "message": message.into()})
+}
+
+fn tier_name(tier: ExtensionConfigTier) -> &'static str {
+    match tier {
+        ExtensionConfigTier::Project => "project",
+        ExtensionConfigTier::User => "user",
+    }
+}
+
+/// One tier's reviewer set: 1-5 reviewers, personas on every reviewer or
+/// none, and an optional per-reviewer output-token budget.
+#[derive(Debug, Eq, PartialEq)]
+struct ReviewerConfig {
+    reviewers: Vec<ConfiguredReviewer>,
+    max_tokens: Option<u64>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ConfiguredReviewer {
+    target: ModelTarget,
+    persona: Option<Charter>,
+}
+
+impl ReviewerConfig {
+    fn new(reviewers: Vec<ConfiguredReviewer>, max_tokens: Option<u64>) -> Result<Self, String> {
+        if reviewers.is_empty() {
+            return Err("reviewers must list at least one reviewer".to_owned());
+        }
+        if reviewers.len() > MAX_SWARM_AGENTS {
+            return Err(format!(
+                "reviewers lists {} entries; the swarm cap is {MAX_SWARM_AGENTS}",
+                reviewers.len()
+            ));
+        }
+        if max_tokens == Some(0) {
+            return Err("max_tokens must be greater than zero".to_owned());
+        }
+        // Personas pair positionally with reviewers; a ragged list would force
+        // invented labels for the gaps.
+        let labeled = reviewers
+            .iter()
+            .filter(|reviewer| reviewer.persona.is_some())
+            .count();
+        if labeled != 0 && labeled != reviewers.len() {
+            return Err("personas must label every reviewer or none".to_owned());
+        }
+        Ok(Self {
+            reviewers,
+            max_tokens,
+        })
+    }
+
+    /// Parse a config document: `{"version": 1, "reviewers": [{"target",
+    /// "persona"?}], "max_tokens"?}`.
+    fn parse(document: &Map<String, Value>) -> Result<Self, String> {
+        reject_unknown_config_fields(document, &["version", "reviewers", "max_tokens"])?;
+        match document.get("version").and_then(Value::as_u64) {
+            Some(CONFIG_VERSION) => {}
+            Some(version) => return Err(format!("unsupported config version {version}")),
+            None => return Err(format!("version must be {CONFIG_VERSION}")),
+        }
+        let entries = document
+            .get("reviewers")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "reviewers must be an array".to_owned())?;
+        let reviewers = entries
+            .iter()
+            .map(|entry| {
+                let entry = entry
+                    .as_object()
+                    .ok_or_else(|| "each reviewer must be an object".to_owned())?;
+                reject_unknown_config_fields(entry, &["target", "persona"])?;
+                let target = optional_string(entry, "target")
+                    .map_err(command_message)?
+                    .ok_or_else(|| "each reviewer needs a target".to_owned())?;
+                let persona = optional_string(entry, "persona")
+                    .map_err(command_message)?
+                    .filter(|persona| !persona.trim().is_empty())
+                    .map(|persona| find_charter(persona.trim()).map_err(command_message))
+                    .transpose()?;
+                Ok(ConfiguredReviewer {
+                    target: parse_model_target(&target).map_err(command_message)?,
+                    persona,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let max_tokens = match document.get("max_tokens") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .ok_or_else(|| "max_tokens must be a positive integer".to_owned())?,
+            ),
+        };
+        Self::new(reviewers, max_tokens)
+    }
+
+    fn to_document(&self) -> Map<String, Value> {
+        let reviewers = self
+            .reviewers
+            .iter()
+            .map(|reviewer| {
+                let mut entry =
+                    Map::from_iter([("target".to_owned(), json!(reviewer.target.to_string()))]);
+                if let Some(persona) = reviewer.persona {
+                    entry.insert("persona".to_owned(), json!(persona.name));
+                }
+                Value::Object(entry)
+            })
+            .collect::<Vec<_>>();
+        let mut document = Map::from_iter([
+            ("version".to_owned(), json!(CONFIG_VERSION)),
+            ("reviewers".to_owned(), Value::Array(reviewers)),
+        ]);
+        if let Some(max_tokens) = self.max_tokens {
+            document.insert("max_tokens".to_owned(), json!(max_tokens));
+        }
+        document
+    }
+
+    fn targets(&self) -> Vec<String> {
+        self.reviewers
+            .iter()
+            .map(|reviewer| reviewer.target.to_string())
+            .collect()
+    }
+
+    /// The configured personas in reviewer order, or `None` when no reviewer
+    /// names one (the default charter rotation then applies).
+    fn charters(&self) -> Option<Vec<Charter>> {
+        self.reviewers
+            .iter()
+            .map(|reviewer| reviewer.persona)
+            .collect()
+    }
+}
+
+fn command_message(error: Error) -> String {
+    match error {
+        Error::Command(message) => message,
+        other => other.to_string(),
+    }
 }
 
 /// The consolidated artifact plus the write request that persists it. Split out
@@ -118,6 +515,7 @@ fn build_result(record: &Value, reviewers: &[ReviewerResult]) -> Value {
     let reviewer_count = reviewers.len();
     let succeeded = reviewers.iter().filter(|reviewer| reviewer.ok).count();
     json!({
+        "review_ran": true,
         "persisted_event_id": record_field("persisted_event_id"),
         "relative_path": record_field("relative_path"),
         "sha256": record_field("sha256"),
@@ -200,13 +598,18 @@ Call out any requirement that cannot be tested honestly against production shape
 Prefer findings that would catch real regressions. Say when existing coverage is sufficient.
 Return a concise plaintext review with: summary, findings, and any blocking recommendation. Do not include markdown tables unless they make the review shorter."#;
 
-/// Explicit reviewer target, parsed from `provider::model`. Empty targets are
-/// expressed by omitting `models` entirely — tasks then inherit the session's
-/// active target (companion `inherit_if_empty` semantics).
+/// Reviewer target, parsed from `provider::model`. Targets are always
+/// explicit or configured, never guessed.
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ModelTarget {
     provider: String,
     model: String,
+}
+
+impl std::fmt::Display for ModelTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}::{}", self.provider, self.model)
+    }
 }
 
 /// Reviewer task brief sent to the host over `euler/host/spawn-agents`. The
@@ -256,6 +659,8 @@ fn parse_outcomes(values: Vec<Value>) -> Result<Vec<AgentOutcome>, Error> {
         .collect()
 }
 
+/// The resolved review: explicit or configured targets, charters, the
+/// agent-supplied material, and the per-reviewer budget.
 #[derive(Debug, Eq, PartialEq)]
 struct ReviewInput {
     charters: Vec<Charter>,
@@ -265,51 +670,90 @@ struct ReviewInput {
     max_tokens: u64,
 }
 
-impl ReviewInput {
-    fn parse(value: &Value) -> Result<Self, Error> {
-        if value.is_null() {
-            return Err(input_error(UNCONFIGURED_MESSAGE));
-        }
-        let object = value
-            .as_object()
-            .ok_or_else(|| input_error("code-swarm review input must be a JSON object"))?;
+/// The `code_swarm_review` model-tool input. The host validates it against
+/// the declared schema first; these checks keep the byte bounds (schema
+/// `maxLength` counts characters) and the `provider::model` form.
+#[derive(Debug, Eq, PartialEq)]
+struct ReviewRequest {
+    focus: String,
+    context: String,
+    personas: Option<Vec<Charter>>,
+    models: Option<Vec<ModelTarget>>,
+    max_tokens: Option<u64>,
+}
+
+impl ReviewRequest {
+    fn parse(value: &Value) -> Result<Self, ReviewNotRun> {
+        let invalid =
+            |error: Error| ReviewNotRun::new(NotRunReason::InvalidInput, command_message(error));
+        let object = value.as_object().ok_or_else(|| {
+            ReviewNotRun::new(
+                NotRunReason::InvalidInput,
+                "code_swarm_review input must be a JSON object",
+            )
+        })?;
         reject_unknown_fields(
             object,
-            &["reviewers", "models", "prompt", "context", "max_tokens"],
-        )?;
-        let models = parse_models(object.get("models"))?;
-        if models.is_empty() {
-            return Err(input_error(UNCONFIGURED_MESSAGE));
+            &["focus", "context", "personas", "models", "max_tokens"],
+        )
+        .map_err(invalid)?;
+        let focus = optional_string(object, "focus")
+            .map_err(invalid)?
+            .filter(|focus| !focus.trim().is_empty())
+            .ok_or_else(|| {
+                ReviewNotRun::new(
+                    NotRunReason::InvalidInput,
+                    "focus is required and must contain a review question",
+                )
+            })?;
+        if focus.len() > MAX_REVIEW_FOCUS_BYTES {
+            return Err(ReviewNotRun::new(
+                NotRunReason::InputTooLarge,
+                format!(
+                    "focus exceeds {MAX_REVIEW_FOCUS_BYTES} bytes; shorten the review question"
+                ),
+            ));
         }
-        let prompt = optional_string(object, "prompt")?
-            .filter(|prompt| !prompt.trim().is_empty())
-            .ok_or_else(|| input_error("code-swarm review requires a focus prompt"))?;
-        if prompt.len() > MAX_REVIEW_FOCUS_BYTES {
-            return Err(input_error(format!(
-                "prompt exceeds the {MAX_REVIEW_FOCUS_BYTES}-byte review focus limit"
-            )));
-        }
-        let context = optional_string(object, "context")?
+        let context = optional_string(object, "context")
+            .map_err(invalid)?
             .filter(|context| !context.trim().is_empty())
             .ok_or_else(|| {
-                input_error(
-                    "code-swarm review requires explicit context; the calling agent must supply the exact material to review",
+                ReviewNotRun::new(
+                    NotRunReason::InvalidInput,
+                    "context is required; use ordinary tools to gather the exact material to review, then provide it explicitly",
                 )
             })?;
         if context.len() > MAX_REVIEW_CONTEXT_BYTES {
-            return Err(input_error(format!(
-                "context exceeds the {MAX_REVIEW_CONTEXT_BYTES}-byte review context limit"
-            )));
+            return Err(ReviewNotRun::new(
+                NotRunReason::InputTooLarge,
+                format!(
+                    "context exceeds {MAX_REVIEW_CONTEXT_BYTES} bytes; provide a smaller explicit excerpt"
+                ),
+            ));
         }
+        // An empty model-facing list names no one-off override, so config
+        // resolution runs (the former core tool's behavior).
+        let models = match object.get("models") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(values)) if values.is_empty() => None,
+            Some(value) => Some(parse_models(value).map_err(invalid)?),
+        };
+        let personas = match object.get("personas") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(parse_charters(value).map_err(invalid)?),
+        };
+        let max_tokens = parse_positive_u64(object, "max_tokens").map_err(invalid)?;
         Ok(Self {
-            charters: parse_charters(object.get("reviewers"))?,
-            models,
-            focus: prompt,
+            focus,
             context,
-            max_tokens: parse_positive_u64(object, "max_tokens", DEFAULT_MAX_TOKENS)?,
+            personas,
+            models,
+            max_tokens,
         })
     }
+}
 
+impl ReviewInput {
     /// One task per reviewer target: the model selection IS the agent count
     /// (1-5); charters cycle round-robin across agents. Targets are always
     /// explicit — they come from persisted config or one-off flags, never from
@@ -326,16 +770,10 @@ impl ReviewInput {
     }
 }
 
-fn parse_models(value: Option<&Value>) -> Result<Vec<ModelTarget>, Error> {
-    let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(Vec::new());
-    };
+fn parse_models(value: &Value) -> Result<Vec<ModelTarget>, Error> {
     let values = value
         .as_array()
         .ok_or_else(|| input_error("models must be an array of provider::model strings"))?;
-    if values.is_empty() {
-        return Err(input_error("models must not be empty when provided"));
-    }
     if values.len() > MAX_SWARM_AGENTS {
         return Err(input_error(format!(
             "models lists {} targets; the swarm cap is {MAX_SWARM_AGENTS}",
@@ -438,21 +876,16 @@ fn charter_task(
     }
 }
 
-fn parse_charters(value: Option<&Value>) -> Result<Vec<Charter>, Error> {
-    let Some(value) = value.filter(|value| !value.is_null()) else {
-        return Ok(CHARTERS.to_vec());
-    };
+fn parse_charters(value: &Value) -> Result<Vec<Charter>, Error> {
     let values = value
         .as_array()
-        .ok_or_else(|| input_error("reviewers must be an array of strings"))?;
+        .ok_or_else(|| input_error("personas must be an array of strings"))?;
     if values.is_empty() {
-        return Err(input_error("reviewers must not be empty"));
+        return Err(input_error("personas must not be empty when provided"));
     }
-    // Without explicit models, one agent spawns per charter entry — the swarm
-    // cap must bound this list too, not just `models`.
     if values.len() > MAX_SWARM_AGENTS {
         return Err(input_error(format!(
-            "reviewers lists {} entries; the swarm cap is {MAX_SWARM_AGENTS}",
+            "personas lists {} entries; the swarm cap is {MAX_SWARM_AGENTS}",
             values.len()
         )));
     }
@@ -461,7 +894,7 @@ fn parse_charters(value: Option<&Value>) -> Result<Vec<Charter>, Error> {
         .map(|value| {
             let name = value
                 .as_str()
-                .ok_or_else(|| input_error("reviewers must be an array of strings"))?;
+                .ok_or_else(|| input_error("personas must be an array of strings"))?;
             find_charter(name)
         })
         .collect()
@@ -506,24 +939,30 @@ fn reject_unknown_fields(
     Ok(())
 }
 
+fn reject_unknown_config_fields(
+    object: &Map<String, Value>,
+    allowed: &[&'static str],
+) -> Result<(), String> {
+    match object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        Some(key) => Err(format!("unknown config field `{key}`")),
+        None => Ok(()),
+    }
+}
+
 fn parse_positive_u64(
     object: &Map<String, Value>,
     field: &'static str,
-    default: u64,
-) -> Result<u64, Error> {
-    let Some(value) = object.get(field) else {
-        return Ok(default);
+) -> Result<Option<u64>, Error> {
+    let Some(value) = object.get(field).filter(|value| !value.is_null()) else {
+        return Ok(None);
     };
-    if value.is_null() {
-        return Ok(default);
-    }
     let parsed = value
         .as_u64()
         .ok_or_else(|| input_error(format!("{field} must be a positive integer")))?;
     if parsed == 0 {
         return Err(input_error(format!("{field} must be greater than zero")));
     }
-    Ok(parsed)
+    Ok(Some(parsed))
 }
 
 fn optional_string(
@@ -553,9 +992,32 @@ mod tests {
     fn models_input(models: &[&str]) -> Value {
         json!({
             "models": models,
-            "prompt": "review this explicit subject",
+            "focus": "review this explicit subject",
             "context": "the explicit subject under review",
         })
+    }
+
+    fn no_config_read() -> Result<ExtensionConfigDocuments, Error> {
+        panic!("explicit models must not read the config documents")
+    }
+
+    /// Plan a review whose input names explicit models.
+    fn explicit(input: &Value) -> ReviewInput {
+        plan_review(input, no_config_read).expect("valid explicit review")
+    }
+
+    fn not_run(
+        input: &Value,
+        read_config: impl FnOnce() -> Result<ExtensionConfigDocuments, Error>,
+    ) -> ReviewNotRun {
+        match plan_review(input, read_config) {
+            Err(ReviewFailure::NotRun(not_run)) => not_run,
+            other => panic!("expected a not-run review, got {other:?}"),
+        }
+    }
+
+    fn explicit_not_run(input: &Value) -> ReviewNotRun {
+        not_run(input, no_config_read)
     }
 
     fn outcome(persona: &str, index: usize, failed: bool, long: bool) -> AgentOutcome {
@@ -614,26 +1076,42 @@ mod tests {
     }
 
     #[test]
-    fn review_without_models_fails_honestly() {
-        for input in [Value::Null, json!({}), json!({"reviewers": ["tests"]})] {
-            let error = ReviewInput::parse(&input).expect_err("missing models must fail");
-            let message = error.to_string();
+    fn review_without_models_or_config_is_an_honest_unconfigured_result() {
+        let not_run = not_run(
+            &json!({"focus": "question", "context": "material", "personas": ["tests"]}),
+            || Ok(ExtensionConfigDocuments::default()),
+        );
+        assert_eq!(not_run.reason, NotRunReason::Unconfigured);
+        for fragment in [
+            "Relay these options to the user; do not guess providers or models",
+            "code-swarm.configure",
+            "code-swarm.configure-user",
+            "code-swarm.import",
+        ] {
             assert!(
-                message.contains("provider::model") && message.contains("/code-swarm"),
-                "unconfigured error must carry remediation, got: {message}"
+                not_run.message.contains(fragment),
+                "unconfigured result must carry `{fragment}`: {}",
+                not_run.message
             );
         }
+        assert_eq!(
+            not_run.to_result(),
+            json!({
+                "review_ran": false,
+                "reason": "unconfigured",
+                "message": UNCONFIGURED_MESSAGE,
+            })
+        );
     }
 
     #[test]
     fn review_spawns_one_concurrent_batch_with_cycled_charters() {
-        let input = ReviewInput::parse(&json!({"models": [
+        let input = explicit(&json!({"models": [
             "openrouter::z-ai/glm-5.2",
             "anthropic::claude-opus-5",
             "openai::gpt-5.5",
             "openrouter::z-ai/glm-5.2",
-        ], "prompt": "focus on the parser", "context": "parser diff"}))
-        .expect("valid input");
+        ], "focus": "focus on the parser", "context": "parser diff"}));
         let tasks = input.tasks();
         assert_eq!(tasks.len(), 4);
         assert_eq!(tasks[0].provider, "openrouter");
@@ -664,6 +1142,7 @@ mod tests {
 
         let reviewers = reviewers_for(&input, None, false);
         let result = build_result(&fake_record(), &reviewers);
+        assert_eq!(result["review_ran"], json!(true));
         assert_eq!(result["reviewer_count"], json!(4));
         assert_eq!(result["succeeded"], json!(4));
         assert_eq!(result["failed"], json!(0));
@@ -671,7 +1150,7 @@ mod tests {
 
     #[test]
     fn task_wire_shape_matches_host_field_set() {
-        let input = ReviewInput::parse(&models_input(&["a::b"])).unwrap();
+        let input = explicit(&models_input(&["a::b"]));
         let value = serde_json::to_value(&input.tasks()[0]).unwrap();
         let object = value.as_object().unwrap();
         let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
@@ -698,7 +1177,7 @@ mod tests {
 
     #[test]
     fn review_result_carries_bounded_findings_per_reviewer() {
-        let input = ReviewInput::parse(&models_input(&["a::b"])).unwrap();
+        let input = explicit(&models_input(&["a::b"]));
         let reviewers = reviewers_for(&input, None, true);
         let result = build_result(&fake_record(), &reviewers);
 
@@ -721,7 +1200,7 @@ mod tests {
 
     #[test]
     fn review_writes_report_artifact_from_outcomes() {
-        let input = ReviewInput::parse(&models_input(&["a::b", "c::d", "e::f"])).unwrap();
+        let input = explicit(&models_input(&["a::b", "c::d", "e::f"]));
         let reviewers = reviewers_for(&input, None, false);
         let report = build_report(&input, &reviewers);
 
@@ -764,7 +1243,9 @@ mod tests {
 
     #[test]
     fn review_selects_requested_charter_and_budget() {
-        let input = ReviewInput::parse(&json!({"models": ["a::b"], "reviewers": ["tests"], "max_tokens": 123, "prompt": "explicit subject", "context": "subject details"})).unwrap();
+        let input = explicit(
+            &json!({"models": ["a::b"], "personas": ["tests"], "max_tokens": 123, "focus": "explicit subject", "context": "subject details"}),
+        );
         let tasks = input.tasks();
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].persona, "code-swarm-tests");
@@ -774,76 +1255,298 @@ mod tests {
 
     #[test]
     fn review_rejects_bad_model_targets_and_over_cap() {
-        for (input, fragment) in [
-            (json!({"models": []}), "must not be empty"),
-            (json!({"models": ["no-separator"]}), "provider::model"),
-            (json!({"models": ["::model"]}), "both provider and model"),
-            (json!({"models": ["provider::"]}), "both provider and model"),
+        for (models, fragment) in [
+            (json!(["no-separator"]), "provider::model"),
+            (json!(["::model"]), "both provider and model"),
+            (json!(["provider::"]), "both provider and model"),
             (
-                json!({"models": ["a::b", "a::b", "a::b", "a::b", "a::b", "a::b"]}),
+                json!(["a::b", "a::b", "a::b", "a::b", "a::b", "a::b"]),
                 "cap is 5",
             ),
         ] {
-            let error = ReviewInput::parse(&input).expect_err("invalid models input");
+            let not_run = explicit_not_run(
+                &json!({"models": models, "focus": "question", "context": "material"}),
+            );
+            assert_eq!(not_run.reason, NotRunReason::InvalidInput);
             assert!(
-                error.to_string().contains(fragment),
-                "error `{error}` should contain `{fragment}`"
+                not_run.message.contains(fragment),
+                "`{}` should contain `{fragment}`",
+                not_run.message
             );
         }
     }
 
     #[test]
-    fn review_rejects_over_cap_reviewer_lists_and_unknown_personas() {
-        let input = json!({"models": ["a::b"], "reviewers": ["tests", "tests", "tests", "tests", "tests", "tests"], "prompt": "explicit subject", "context": "subject details"});
-        let error = ReviewInput::parse(&input).expect_err("over-cap reviewers");
-        assert!(error.to_string().contains("cap is 5"));
+    fn review_rejects_over_cap_persona_lists_and_unknown_personas() {
+        let not_run = explicit_not_run(
+            &json!({"models": ["a::b"], "personas": ["tests", "tests", "tests", "tests", "tests", "tests"], "focus": "explicit subject", "context": "subject details"}),
+        );
+        assert!(not_run.message.contains("cap is 5"));
 
-        let input = json!({"models": ["a::b"], "reviewers": ["astrology"], "prompt": "explicit subject", "context": "subject details"});
-        let error = ReviewInput::parse(&input).expect_err("unknown persona");
-        let message = error.to_string();
+        let not_run = explicit_not_run(
+            &json!({"models": ["a::b"], "personas": ["astrology"], "focus": "explicit subject", "context": "subject details"}),
+        );
         assert!(
-            message.contains("valid personas: correctness, safety, tests"),
-            "unknown-persona error must name the valid set: {message}"
+            not_run
+                .message
+                .contains("valid personas: correctness, safety, tests"),
+            "unknown-persona result must name the valid set: {}",
+            not_run.message
         );
     }
 
     #[test]
     fn review_rejects_unknown_input_fields() {
-        let error = ReviewInput::parse(
-            &json!({"models": ["a::b"], "prompt": "explicit subject", "extra": true}),
-        )
-        .expect_err("unknown field");
-        assert!(error.to_string().contains("unknown input field `extra`"));
+        let not_run = explicit_not_run(
+            &json!({"models": ["a::b"], "focus": "explicit subject", "context": "c", "prompt": "old"}),
+        );
+        assert_eq!(not_run.reason, NotRunReason::InvalidInput);
+        assert!(not_run.message.contains("unknown input field `prompt`"));
     }
 
     #[test]
     fn review_requires_bounded_focus_and_context() {
-        for (input, expected) in [
+        for (input, reason, expected) in [
             (
                 json!({"models": ["a::b"], "context": "material"}),
-                "focus prompt",
+                NotRunReason::InvalidInput,
+                "focus is required",
             ),
             (
-                json!({"models": ["a::b"], "prompt": "question"}),
-                "explicit context",
+                json!({"models": ["a::b"], "focus": "question", "context": "  "}),
+                NotRunReason::InvalidInput,
+                "context is required",
+            ),
+            (
+                // Within the schema's character bound, over the byte bound.
+                json!({
+                    "models": ["a::b"],
+                    "focus": "\u{e9}".repeat(MAX_REVIEW_FOCUS_BYTES / 2 + 1),
+                    "context": "material",
+                }),
+                NotRunReason::InputTooLarge,
+                "focus exceeds 7168 bytes",
             ),
             (
                 json!({
                     "models": ["a::b"],
-                    "prompt": "question",
-                    "context": "x".repeat(MAX_REVIEW_CONTEXT_BYTES + 1),
+                    "focus": "question",
+                    "context": "\u{e9}".repeat(MAX_REVIEW_CONTEXT_BYTES / 2 + 1),
                 }),
-                "context exceeds",
+                NotRunReason::InputTooLarge,
+                "context exceeds 262144 bytes",
             ),
         ] {
-            let error = ReviewInput::parse(&input).expect_err("invalid explicit review input");
-            assert!(error.to_string().contains(expected), "{error}");
+            let not_run = explicit_not_run(&input);
+            assert_eq!(not_run.reason, reason, "{}", not_run.message);
+            assert!(not_run.message.contains(expected), "{}", not_run.message);
+        }
+    }
+
+    fn documents(project: Option<Value>, user: Option<Value>) -> ExtensionConfigDocuments {
+        let object = |value: Value| value.as_object().cloned().expect("config object");
+        ExtensionConfigDocuments {
+            project: project.map(object),
+            user: user.map(object),
+        }
+    }
+
+    fn review_request() -> Value {
+        json!({"focus": "question", "context": "material"})
+    }
+
+    #[test]
+    fn review_resolves_project_then_user_config() {
+        let project = json!({
+            "version": 1,
+            "reviewers": [
+                {"target": "anthropic::claude-opus-5", "persona": "tests"},
+                {"target": "openai::gpt-5.5", "persona": "safety"},
+            ],
+            "max_tokens": 1000,
+        });
+        let user = json!({"version": 1, "reviewers": [{"target": "user::model"}]});
+
+        let input = plan_review(&review_request(), || {
+            Ok(documents(Some(project.clone()), Some(user.clone())))
+        })
+        .expect("project tier");
+        assert_eq!(
+            input
+                .models
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            vec!["anthropic::claude-opus-5", "openai::gpt-5.5"]
+        );
+        let personas = input
+            .tasks()
+            .into_iter()
+            .map(|task| task.persona)
+            .collect::<Vec<_>>();
+        assert_eq!(personas, vec!["code-swarm-tests", "code-swarm-safety"]);
+        assert_eq!(input.max_tokens, 1000);
+
+        let input = plan_review(&review_request(), || {
+            Ok(documents(None, Some(user.clone())))
+        })
+        .expect("user tier");
+        assert_eq!(input.models[0].to_string(), "user::model");
+        assert_eq!(input.charters, CHARTERS.to_vec());
+        assert_eq!(input.max_tokens, DEFAULT_MAX_TOKENS);
+
+        // Call-level personas and budget override the configured ones.
+        let input = plan_review(
+            &json!({"focus": "q", "context": "c", "personas": ["correctness"], "max_tokens": 7}),
+            || Ok(documents(Some(project.clone()), None)),
+        )
+        .expect("overrides");
+        assert_eq!(input.charters, vec![CHARTERS[0]]);
+        assert_eq!(input.max_tokens, 7);
+    }
+
+    #[test]
+    fn empty_models_list_resolves_reviewers_from_config() {
+        let user = json!({"version": 1, "reviewers": [{"target": "user::model"}]});
+        let input = plan_review(&json!({"focus": "q", "context": "c", "models": []}), || {
+            Ok(documents(None, Some(user)))
+        })
+        .expect("config tier");
+        assert_eq!(input.models[0].to_string(), "user::model");
+
+        let not_run = not_run(&json!({"focus": "q", "context": "c", "models": []}), || {
+            Ok(ExtensionConfigDocuments::default())
+        });
+        assert_eq!(not_run.reason, NotRunReason::Unconfigured);
+    }
+
+    #[test]
+    fn explicit_models_win_without_reading_config() {
+        let input = explicit(&json!({"focus": "q", "context": "c", "models": ["one::off"]}));
+        assert_eq!(input.models[0].to_string(), "one::off");
+        assert_eq!(input.max_tokens, DEFAULT_MAX_TOKENS);
+    }
+
+    #[test]
+    fn invalid_config_is_an_error_never_a_fall_through() {
+        let user = json!({"version": 1, "reviewers": [{"target": "user::model"}]});
+        for (project, fragment) in [
+            (
+                json!({"version": 2, "reviewers": []}),
+                "unsupported config version 2",
+            ),
+            (
+                json!({"version": 1, "reviewers": []}),
+                "at least one reviewer",
+            ),
+            (
+                json!({"version": 1, "reviewers": [{"target": "a::b", "persona": "tests"}, {"target": "c::d"}]}),
+                "every reviewer or none",
+            ),
+            (
+                json!({"version": 1, "reviewers": [{"target": "a::b", "persona": "astrology"}]}),
+                "valid personas",
+            ),
+            (
+                json!({"version": 1, "reviewers": [{"target": "nope"}]}),
+                "provider::model",
+            ),
+            (
+                json!({"version": 1, "reviewers": [{"target": "a::b"}], "max_tokens": 0}),
+                "max_tokens must be greater than zero",
+            ),
+            (
+                json!({"version": 1, "reviewers": [{"target": "a::b"}], "extra": true}),
+                "unknown config field `extra`",
+            ),
+        ] {
+            let not_run = not_run(&review_request(), || {
+                Ok(documents(Some(project), Some(user.clone())))
+            });
+            assert_eq!(not_run.reason, NotRunReason::InvalidConfig);
+            assert!(
+                not_run
+                    .message
+                    .contains("the project code-swarm config is invalid")
+                    && not_run.message.contains(fragment)
+                    && not_run.message.contains("code-swarm.configure"),
+                "{}",
+                not_run.message
+            );
+        }
+
+        // The user tier is held to the same rules when the project tier is
+        // absent.
+        let user_not_run = not_run(&review_request(), || {
+            Ok(documents(
+                None,
+                Some(json!({"version": 1, "reviewers": []})),
+            ))
+        });
+        assert_eq!(user_not_run.reason, NotRunReason::InvalidConfig);
+        assert!(
+            user_not_run
+                .message
+                .contains("the user code-swarm config is invalid"),
+            "{}",
+            user_not_run.message
+        );
+
+        // The host refuses a malformed document; the review does not run.
+        let not_run = not_run(&review_request(), || {
+            Err(Error::Host("host operation failed".to_owned()))
+        });
+        assert_eq!(not_run.reason, NotRunReason::InvalidConfig);
+
+        // Cancellation is not a config problem.
+        assert!(matches!(
+            plan_review(&review_request(), || Err(Error::Cancelled)),
+            Err(ReviewFailure::Host(Error::Cancelled))
+        ));
+    }
+
+    #[test]
+    fn configure_input_writes_targets_only() {
+        let config = configure_input(&json!({"models": ["a::b", "c::d"]})).expect("targets");
+        assert_eq!(
+            Value::Object(config.to_document()),
+            json!({"version": 1, "reviewers": [{"target": "a::b"}, {"target": "c::d"}]})
+        );
+        for (input, fragment) in [
+            (json!({}), "requires --models"),
+            (json!({"models": []}), "at least one reviewer"),
+            (json!({"models": [1]}), "must be provider::model strings"),
+            (
+                json!({"models": ["a::b"], "note": "x"}),
+                "unknown configure input field `note`",
+            ),
+            (
+                json!({"models": ["a::b", "b::c", "c::d", "d::e", "e::f", "f::g"]}),
+                "cap is 5",
+            ),
+        ] {
+            let error = configure_input(&input).expect_err("invalid configure input");
+            assert!(error.contains(fragment), "{error}");
         }
     }
 
     #[test]
+    fn legacy_config_documents_round_trip_unchanged() {
+        let legacy = json!({
+            "version": 1,
+            "reviewers": [
+                {"target": "anthropic::claude-opus-5", "persona": "correctness"},
+                {"target": "openai::gpt-5.5", "persona": "tests"},
+            ],
+            "max_tokens": 4096,
+        });
+        let config = ReviewerConfig::parse(legacy.as_object().unwrap()).expect("legacy document");
+        assert_eq!(Value::Object(config.to_document()), legacy);
+    }
+
+    #[test]
     fn review_reports_failed_reviewer_outcome_without_failing_the_command() {
-        let input = ReviewInput::parse(&models_input(&["a::b", "c::d", "e::f"])).unwrap();
+        let input = explicit(&models_input(&["a::b", "c::d", "e::f"]));
         let reviewers = reviewers_for(&input, Some("code-swarm-safety"), false);
         let result = build_result(&fake_record(), &reviewers);
 

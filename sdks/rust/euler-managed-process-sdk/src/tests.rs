@@ -405,3 +405,65 @@ fn non_object_handler_results_are_rejected() {
     let messages = written_messages(&writer);
     assert_eq!(messages[1]["error"]["code"], -32000);
 }
+
+#[test]
+fn extension_config_round_trips_use_the_host_wire_shapes() {
+    let [shutdown, exit] = shutdown_and_exit(3);
+    let reader = script(&[
+        initialize(1),
+        initialized(),
+        command(2, "configure", Value::Null),
+        json!({"jsonrpc": "2.0", "id": "client-1", "result": {
+            "project": {"version": 1}, "user": null,
+        }}),
+        json!({"jsonrpc": "2.0", "id": "client-2", "result": {}}),
+        json!({"jsonrpc": "2.0", "id": "client-3", "result": {"project": null}}),
+        shutdown,
+        exit,
+    ]);
+    let mut writer: TestWriter = Vec::new();
+    let mut handlers: BTreeMap<String, Handler<TestReader, &mut TestWriter>> = BTreeMap::new();
+    handlers.insert(
+        "configure".to_owned(),
+        Box::new(|_, host| {
+            let documents = host.read_extension_config()?;
+            assert_eq!(
+                documents,
+                ExtensionConfigDocuments {
+                    project: Some(Map::from_iter([("version".to_owned(), json!(1))])),
+                    user: None,
+                }
+            );
+            host.write_extension_config(
+                ExtensionConfigTier::User,
+                &Map::from_iter([("version".to_owned(), json!(2))]),
+            )?;
+            // A result missing a tier is outside the contract.
+            let missing_tier = host.read_extension_config();
+            assert!(matches!(missing_tier, Err(Error::Protocol(_))));
+            Ok(json!({}))
+        }),
+    );
+
+    serve_with(reader, &mut writer, handlers).expect("clean lifecycle");
+
+    let messages = written_messages(&writer);
+    assert_eq!(
+        messages[1],
+        json!({
+            "jsonrpc": "2.0", "id": "client-1",
+            "method": "euler/host/read-extension-config", "params": {},
+        })
+    );
+    assert_eq!(
+        messages[2],
+        json!({
+            "jsonrpc": "2.0", "id": "client-2",
+            "method": "euler/host/write-extension-config",
+            "params": {"tier": "user", "value": {"version": 2}},
+        })
+    );
+    assert_eq!(messages[3]["method"], "euler/host/read-extension-config");
+    assert_eq!(messages[4]["id"], 2);
+    assert_eq!(messages[4]["result"], json!({}));
+}

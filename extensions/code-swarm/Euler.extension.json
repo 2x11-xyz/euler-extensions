@@ -2,19 +2,102 @@
   "version": 1,
   "id": "code-swarm",
   "display_name": "CodeSwarm Review",
-  "extension_version": "0.1.0",
+  "extension_version": "0.2.0",
   "runtime_kind": "managed-process",
   "entrypoint": {
     "command": ["target/release/code-swarm"]
   },
-  "capabilities": ["agent-spawn", "artifact-write"],
+  "capabilities": ["agent-spawn", "artifact-write", "config-write"],
   "commands": [
     {
       "name": "review",
       "display_name": "Run CodeSwarm review",
       "summary": "Run 1-5 review-only agents over explicit bounded context and write a consolidated review artifact.",
       "required_capabilities": ["agent-spawn", "artifact-write"],
-      "invocation": "agent-only"
+      "invocation": "agent-only",
+      "model_tool": {
+        "name": "code_swarm_review",
+        "description": "Run configured CodeSwarm reviewers over explicit bounded review material. First use ordinary tools to retrieve the exact plan, files, or diff to review; then provide that material in context. Reviewers receive context and a concise focus, never ambient session canvas. Returns every reviewer finding plus a consolidated artifact. Use models only for user-named one-off targets. When the result has review_ran false, no reviewer ran: relay its message to the user and do not guess providers or models.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "focus": {
+              "type": "string",
+              "description": "Required concise review question (maximum 7168 bytes).",
+              "minLength": 1,
+              "maxLength": 7168
+            },
+            "context": {
+              "type": "string",
+              "description": "Required exact review material assembled by the calling agent with ordinary tools (maximum 262144 bytes).",
+              "minLength": 1,
+              "maxLength": 262144
+            },
+            "personas": {
+              "type": "array",
+              "description": "Reviewer charter names; defaults rotate correctness, safety, tests.",
+              "items": {
+                "type": "string",
+                "enum": ["correctness", "safety", "tests"]
+              },
+              "minItems": 1,
+              "maxItems": 5
+            },
+            "models": {
+              "type": "array",
+              "description": "One-off provider::model overrides, only when the user named them explicitly.",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "maxItems": 5
+            },
+            "max_tokens": {
+              "type": "integer",
+              "description": "Per-reviewer output-token budget.",
+              "minimum": 1
+            }
+          },
+          "required": ["focus", "context"],
+          "additionalProperties": false
+        },
+        "max_input_bytes": 327680
+      }
+    },
+    {
+      "name": "configure",
+      "display_name": "Configure CodeSwarm reviewers for this project",
+      "summary": "Pick 1-5 reviewer models for this project's CodeSwarm reviews.",
+      "required_capabilities": ["config-write"],
+      "invocation": "user",
+      "args": [
+        {"flag": "models", "kind": "model-targets", "max": 5, "required": true}
+      ]
+    },
+    {
+      "name": "configure-user",
+      "display_name": "Configure default CodeSwarm reviewers",
+      "summary": "Pick 1-5 reviewer models as your default for CodeSwarm reviews in every project.",
+      "required_capabilities": ["config-write"],
+      "invocation": "user",
+      "args": [
+        {"flag": "models", "kind": "model-targets", "max": 5, "required": true}
+      ]
+    },
+    {
+      "name": "import",
+      "display_name": "Import a legacy CodeSwarm config for this project",
+      "summary": "Import a legacy .euler/code-swarm.json reviewer config (as JSON input) into this project's config.",
+      "required_capabilities": ["config-write"],
+      "invocation": "user"
+    },
+    {
+      "name": "import-user",
+      "display_name": "Import a legacy default CodeSwarm config",
+      "summary": "Import a legacy reviewer config (the code-swarm.json in the Euler home, passed as JSON input) into your default config.",
+      "required_capabilities": ["config-write"],
+      "invocation": "user"
     }
   ]
 }
