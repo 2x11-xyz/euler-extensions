@@ -17,7 +17,7 @@
       "invocation": "agent-only",
       "model_tool": {
         "name": "code_swarm_review",
-        "description": "Run configured CodeSwarm reviewers over explicit bounded review material. First use ordinary tools to retrieve the exact plan, files, or diff to review; then provide that material in context. Reviewers receive context and a concise focus, never ambient session canvas. Returns every reviewer finding plus a consolidated artifact. Use models only for user-named one-off targets. When the result has review_ran false, no reviewer ran: relay its message to the user and do not guess providers or models.",
+        "description": "Run configured CodeSwarm reviewers over explicit bounded review material. First use ordinary tools to retrieve the exact plan, files, or diff to review; then provide that material in context. Reviewers receive context and a concise focus, never ambient session canvas. Returns every reviewer finding plus a consolidated artifact. Use models only for user-named one-off targets. When the tool fails with a code-swarm message, no reviewer ran: relay that message to the user and do not guess providers or models.",
         "input_schema": {
           "type": "object",
           "properties": {

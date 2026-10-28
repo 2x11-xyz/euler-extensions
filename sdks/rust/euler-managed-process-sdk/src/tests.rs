@@ -180,9 +180,45 @@ fn handler_failure_is_a_generic_error_without_details() {
     let messages = written_messages(&writer);
     assert_eq!(messages[1]["error"]["code"], -32000);
     assert_eq!(messages[1]["error"]["message"], "extension command failed");
+    assert!(messages[1]["error"].get("data").is_none());
     assert!(!writer
         .windows(b"secret detail".len())
         .any(|window| window == b"secret detail"));
+}
+
+#[test]
+fn user_message_failure_carries_the_message_on_the_generic_error() {
+    let [shutdown, exit] = shutdown_and_exit(3);
+    let reader = script(&[
+        initialize(1),
+        initialized(),
+        command(2, "explain", Value::Null),
+        shutdown,
+        exit,
+    ]);
+    let mut writer: TestWriter = Vec::new();
+    let mut handlers: BTreeMap<String, Handler<TestReader, &mut TestWriter>> = BTreeMap::new();
+    handlers.insert(
+        "explain".to_owned(),
+        Box::new(|_, _| Err(Error::UserMessage("not configured; relay this".to_owned()))),
+    );
+
+    serve_with(reader, &mut writer, handlers).expect("clean lifecycle");
+
+    let messages = written_messages(&writer);
+    assert_eq!(
+        messages[1],
+        json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "error": {
+                "code": -32000,
+                "message": "extension command failed",
+                "data": {"user_message": "not configured; relay this"},
+            },
+        })
+    );
+    assert_eq!(messages[2]["result"], json!({}));
 }
 
 #[test]

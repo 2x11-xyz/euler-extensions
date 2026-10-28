@@ -3,7 +3,7 @@
 //! The agent-only `review` command is the `code_swarm_review` model tool
 //! (ADR 0022). It resolves reviewers (explicit `models`, then the project
 //! config document, then the user config document, then an honest
-//! unconfigured result), builds bounded reviewer task briefs (a hard cap of
+//! unconfigured failure), builds bounded reviewer task briefs (a hard cap of
 //! five reviewer agents, a persona prefix), runs one concurrent `spawn_agents`
 //! batch, and consolidates the outcomes into the
 //! `euler.code_swarm.review_report.v1` artifact.
@@ -49,6 +49,12 @@ const UNCONFIGURED_MESSAGE: &str = "code-swarm is not configured: no reviewer mo
 const REVIEWER_BATCH_FAILED_MESSAGE: &str = "code-swarm got no reviewer results: the host failed the reviewer batch (usually because a reviewer's provider is not authenticated or its model is unknown, though the host does not say which cause applied). No review result is available. Relay this to the user; do not guess providers or models. The user can sign in with /login <provider> in the TUI or euler login --provider <provider>, change the reviewers with code-swarm.configure (project) or code-swarm.configure-user (user), or name other models for this review.";
 const CONFIG_REMEDIATION: &str = "Relay this to the user; do not guess providers or models. Rewrite the reviewer set with code-swarm.configure (project) or code-swarm.configure-user (user), or fix or delete .euler/extensions/code-swarm/config.json in the workspace or extensions/code-swarm/config.json in the Euler home.";
 
+/// Bound on caller- or config-supplied text quoted in an error message, so a
+/// not-run message stays within Euler's 1 KiB user-message limit and free of
+/// control characters (either would make the host show only its generic
+/// failure).
+const MAX_QUOTED_TEXT_CHARS: usize = 80;
+
 /// Per-reviewer findings bound on the command/tool result. The consolidated
 /// artifact carries the full text; the result never silently clips.
 pub const REVIEWER_FINDINGS_RESULT_BYTES: usize = 16 * 1024;
@@ -80,18 +86,14 @@ fn main() {
 
 /// The whole swarm in one command: resolve reviewers, build reviewer tasks,
 /// run them as one concurrent `Host::spawn_agents` batch, and consolidate the
-/// outcomes into the review artifact. A review that cannot run returns a
-/// `review_ran: false` result instead of an error, because managed-process
-/// command errors reach the model only as a generic failure.
+/// outcomes into the review artifact. A review that cannot run fails with an
+/// [`Error::UserMessage`] the model relays, so the tool result is an honest
+/// failure rather than a success that reviewed nothing.
 fn execute<R: BufRead, W: Write>(
     context: &CommandContext,
     host: &mut Host<'_, R, W>,
 ) -> Result<Value, Error> {
-    let input = match plan_review(&context.input, || host.read_extension_config()) {
-        Ok(input) => input,
-        Err(ReviewFailure::NotRun(not_run)) => return Ok(not_run.to_result()),
-        Err(ReviewFailure::Host(error)) => return Err(error),
-    };
+    let input = plan_review(&context.input, || host.read_extension_config())?;
     let tasks = input.tasks();
     let personas = tasks
         .iter()
@@ -107,13 +109,7 @@ fn execute<R: BufRead, W: Write>(
     // failure; the host's error does not name the cause.
     let outcome_values = match host.spawn_agents(&task_values) {
         Ok(values) => values,
-        Err(Error::Host(_)) => {
-            return Ok(ReviewNotRun::new(
-                NotRunReason::ReviewerBatchFailed,
-                REVIEWER_BATCH_FAILED_MESSAGE,
-            )
-            .to_result())
-        }
+        Err(Error::Host(_)) => return Err(review_not_run(REVIEWER_BATCH_FAILED_MESSAGE)),
         Err(error) => return Err(error),
     };
     let outcomes = parse_outcomes(outcome_values)?;
@@ -127,74 +123,20 @@ fn execute<R: BufRead, W: Write>(
     Ok(build_result(&record, &reviewers))
 }
 
-/// Why a review did not run. Each reason carries honest text the model
-/// relays; none is a guess at targets.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum NotRunReason {
-    Unconfigured,
-    InvalidConfig,
-    InvalidInput,
-    InputTooLarge,
-    ReviewerBatchFailed,
-}
-
-impl NotRunReason {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Unconfigured => "unconfigured",
-            Self::InvalidConfig => "invalid_config",
-            Self::InvalidInput => "invalid_input",
-            Self::InputTooLarge => "input_too_large",
-            Self::ReviewerBatchFailed => "reviewer_batch_failed",
-        }
-    }
-}
-
-#[derive(Debug, Eq, PartialEq)]
-struct ReviewNotRun {
-    reason: NotRunReason,
-    message: String,
-}
-
-impl ReviewNotRun {
-    fn new(reason: NotRunReason, message: impl Into<String>) -> Self {
-        Self {
-            reason,
-            message: message.into(),
-        }
-    }
-
-    fn to_result(&self) -> Value {
-        json!({
-            "review_ran": false,
-            "reason": self.reason.as_str(),
-            "message": self.message,
-        })
-    }
-}
-
-#[derive(Debug)]
-enum ReviewFailure {
-    /// The review did not run; the model receives the honest text.
-    NotRun(ReviewNotRun),
-    /// A host or protocol failure (including cancellation) that ends the
-    /// command.
-    Host(Error),
-}
-
-impl From<ReviewNotRun> for ReviewFailure {
-    fn from(not_run: ReviewNotRun) -> Self {
-        Self::NotRun(not_run)
-    }
+/// A review that did not run: honest text the model relays as the failed tool
+/// result. None of it guesses at targets.
+fn review_not_run(message: impl Into<String>) -> Error {
+    Error::UserMessage(message.into())
 }
 
 /// Parse the model-tool input and resolve reviewers. Config is read only
 /// when the call names no explicit models, so a broken config never blocks a
-/// one-off review.
+/// one-off review. A review that cannot run is an [`Error::UserMessage`]; any
+/// other error is a host or protocol failure (including cancellation).
 fn plan_review(
     value: &Value,
     read_config: impl FnOnce() -> Result<ExtensionConfigDocuments, Error>,
-) -> Result<ReviewInput, ReviewFailure> {
+) -> Result<ReviewInput, Error> {
     let request = ReviewRequest::parse(value)?;
     if let Some(models) = request.models {
         return Ok(ReviewInput {
@@ -211,27 +153,22 @@ fn plan_review(
         // error text does not cross the wire, so the message names the likely
         // causes without claiming which one applied.
         Err(Error::Host(_)) => {
-            return Err(ReviewNotRun::new(
-                NotRunReason::InvalidConfig,
-                format!(
-                    "code-swarm could not read its reviewer config: the host refused to read a config document (usually because it is malformed, oversized, or not a regular file). {CONFIG_REMEDIATION}"
-                ),
-            )
-            .into())
+            return Err(review_not_run(format!(
+                "code-swarm could not read its reviewer config: the host refused to read a config document (usually because it is malformed, oversized, or not a regular file). {CONFIG_REMEDIATION}"
+            )))
         }
-        Err(error) => return Err(ReviewFailure::Host(error)),
+        Err(error) => return Err(error),
     };
     let configured = [("project", documents.project), ("user", documents.user)]
         .into_iter()
         .find_map(|(tier, document)| document.map(|document| (tier, document)));
     let Some((tier, document)) = configured else {
-        return Err(ReviewNotRun::new(NotRunReason::Unconfigured, UNCONFIGURED_MESSAGE).into());
+        return Err(review_not_run(UNCONFIGURED_MESSAGE));
     };
     let config = ReviewerConfig::parse(&document).map_err(|error| {
-        ReviewNotRun::new(
-            NotRunReason::InvalidConfig,
-            format!("the {tier} code-swarm config is invalid: {error}. {CONFIG_REMEDIATION}"),
-        )
+        review_not_run(format!(
+            "the {tier} code-swarm config is invalid: {error}. {CONFIG_REMEDIATION}"
+        ))
     })?;
     let charters = request
         .personas
@@ -683,15 +620,11 @@ struct ReviewRequest {
 }
 
 impl ReviewRequest {
-    fn parse(value: &Value) -> Result<Self, ReviewNotRun> {
-        let invalid =
-            |error: Error| ReviewNotRun::new(NotRunReason::InvalidInput, command_message(error));
-        let object = value.as_object().ok_or_else(|| {
-            ReviewNotRun::new(
-                NotRunReason::InvalidInput,
-                "code_swarm_review input must be a JSON object",
-            )
-        })?;
+    fn parse(value: &Value) -> Result<Self, Error> {
+        let invalid = |error: Error| review_not_run(command_message(error));
+        let object = value
+            .as_object()
+            .ok_or_else(|| review_not_run("code_swarm_review input must be a JSON object"))?;
         reject_unknown_fields(
             object,
             &["focus", "context", "personas", "models", "max_tokens"],
@@ -701,35 +634,25 @@ impl ReviewRequest {
             .map_err(invalid)?
             .filter(|focus| !focus.trim().is_empty())
             .ok_or_else(|| {
-                ReviewNotRun::new(
-                    NotRunReason::InvalidInput,
-                    "focus is required and must contain a review question",
-                )
+                review_not_run("focus is required and must contain a review question")
             })?;
         if focus.len() > MAX_REVIEW_FOCUS_BYTES {
-            return Err(ReviewNotRun::new(
-                NotRunReason::InputTooLarge,
-                format!(
-                    "focus exceeds {MAX_REVIEW_FOCUS_BYTES} bytes; shorten the review question"
-                ),
-            ));
+            return Err(review_not_run(format!(
+                "focus exceeds {MAX_REVIEW_FOCUS_BYTES} bytes; shorten the review question"
+            )));
         }
         let context = optional_string(object, "context")
             .map_err(invalid)?
             .filter(|context| !context.trim().is_empty())
             .ok_or_else(|| {
-                ReviewNotRun::new(
-                    NotRunReason::InvalidInput,
+                review_not_run(
                     "context is required; use ordinary tools to gather the exact material to review, then provide it explicitly",
                 )
             })?;
         if context.len() > MAX_REVIEW_CONTEXT_BYTES {
-            return Err(ReviewNotRun::new(
-                NotRunReason::InputTooLarge,
-                format!(
-                    "context exceeds {MAX_REVIEW_CONTEXT_BYTES} bytes; provide a smaller explicit excerpt"
-                ),
-            ));
+            return Err(review_not_run(format!(
+                "context exceeds {MAX_REVIEW_CONTEXT_BYTES} bytes; provide a smaller explicit excerpt"
+            )));
         }
         // An empty model-facing list names no one-off override, so config
         // resolution runs (the former core tool's behavior).
@@ -794,12 +717,14 @@ fn parse_models(value: &Value) -> Result<Vec<ModelTarget>, Error> {
 fn parse_model_target(text: &str) -> Result<ModelTarget, Error> {
     let Some((provider, model)) = text.split_once("::") else {
         return Err(input_error(format!(
-            "model target `{text}` must use provider::model form"
+            "model target `{}` must use provider::model form",
+            quoted_text(text)
         )));
     };
     if provider.trim().is_empty() || model.trim().is_empty() {
         return Err(input_error(format!(
-            "model target `{text}` must name both provider and model"
+            "model target `{}` must name both provider and model",
+            quoted_text(text)
         )));
     }
     Ok(ModelTarget {
@@ -912,7 +837,8 @@ fn find_charter(name: &str) -> Result<Charter, Error> {
                 .collect::<Vec<_>>()
                 .join(", ");
             input_error(format!(
-                "unknown CodeSwarm reviewer `{name}`; valid personas: {valid}"
+                "unknown CodeSwarm reviewer `{}`; valid personas: {valid}",
+                quoted_text(name)
             ))
         })
 }
@@ -933,7 +859,10 @@ fn reject_unknown_fields(
 ) -> Result<(), Error> {
     for key in object.keys() {
         if !allowed.contains(&key.as_str()) {
-            return Err(input_error(format!("unknown input field `{key}`")));
+            return Err(input_error(format!(
+                "unknown input field `{}`",
+                quoted_text(key)
+            )));
         }
     }
     Ok(())
@@ -944,7 +873,7 @@ fn reject_unknown_config_fields(
     allowed: &[&'static str],
 ) -> Result<(), String> {
     match object.keys().find(|key| !allowed.contains(&key.as_str())) {
-        Some(key) => Err(format!("unknown config field `{key}`")),
+        Some(key) => Err(format!("unknown config field `{}`", quoted_text(key))),
         None => Ok(()),
     }
 }
@@ -981,6 +910,20 @@ fn optional_string(
         .ok_or_else(|| input_error(format!("{field} must be a string")))
 }
 
+/// Caller- or config-supplied text for an error message: control and other
+/// unprintable characters escaped, at most [`MAX_QUOTED_TEXT_CHARS`].
+fn quoted_text(text: &str) -> String {
+    let mut escaped = text.escape_debug();
+    let mut quoted = escaped
+        .by_ref()
+        .take(MAX_QUOTED_TEXT_CHARS)
+        .collect::<String>();
+    if escaped.next().is_some() {
+        quoted.push_str("...");
+    }
+    quoted
+}
+
 fn input_error(message: impl Into<String>) -> Error {
     Error::Command(message.into())
 }
@@ -1009,14 +952,14 @@ mod tests {
     fn not_run(
         input: &Value,
         read_config: impl FnOnce() -> Result<ExtensionConfigDocuments, Error>,
-    ) -> ReviewNotRun {
+    ) -> String {
         match plan_review(input, read_config) {
-            Err(ReviewFailure::NotRun(not_run)) => not_run,
+            Err(Error::UserMessage(message)) => message,
             other => panic!("expected a not-run review, got {other:?}"),
         }
     }
 
-    fn explicit_not_run(input: &Value) -> ReviewNotRun {
+    fn explicit_not_run(input: &Value) -> String {
         not_run(input, no_config_read)
     }
 
@@ -1076,12 +1019,12 @@ mod tests {
     }
 
     #[test]
-    fn review_without_models_or_config_is_an_honest_unconfigured_result() {
+    fn review_without_models_or_config_is_an_honest_unconfigured_failure() {
         let not_run = not_run(
             &json!({"focus": "question", "context": "material", "personas": ["tests"]}),
             || Ok(ExtensionConfigDocuments::default()),
         );
-        assert_eq!(not_run.reason, NotRunReason::Unconfigured);
+        assert_eq!(not_run, UNCONFIGURED_MESSAGE);
         for fragment in [
             "Relay these options to the user; do not guess providers or models",
             "code-swarm.configure",
@@ -1089,19 +1032,10 @@ mod tests {
             "code-swarm.import",
         ] {
             assert!(
-                not_run.message.contains(fragment),
-                "unconfigured result must carry `{fragment}`: {}",
-                not_run.message
+                not_run.contains(fragment),
+                "unconfigured failure must carry `{fragment}`: {not_run}"
             );
         }
-        assert_eq!(
-            not_run.to_result(),
-            json!({
-                "review_ran": false,
-                "reason": "unconfigured",
-                "message": UNCONFIGURED_MESSAGE,
-            })
-        );
     }
 
     #[test]
@@ -1267,11 +1201,10 @@ mod tests {
             let not_run = explicit_not_run(
                 &json!({"models": models, "focus": "question", "context": "material"}),
             );
-            assert_eq!(not_run.reason, NotRunReason::InvalidInput);
             assert!(
-                not_run.message.contains(fragment),
+                not_run.contains(fragment),
                 "`{}` should contain `{fragment}`",
-                not_run.message
+                not_run
             );
         }
     }
@@ -1281,17 +1214,15 @@ mod tests {
         let not_run = explicit_not_run(
             &json!({"models": ["a::b"], "personas": ["tests", "tests", "tests", "tests", "tests", "tests"], "focus": "explicit subject", "context": "subject details"}),
         );
-        assert!(not_run.message.contains("cap is 5"));
+        assert!(not_run.contains("cap is 5"));
 
         let not_run = explicit_not_run(
             &json!({"models": ["a::b"], "personas": ["astrology"], "focus": "explicit subject", "context": "subject details"}),
         );
         assert!(
-            not_run
-                .message
-                .contains("valid personas: correctness, safety, tests"),
+            not_run.contains("valid personas: correctness, safety, tests"),
             "unknown-persona result must name the valid set: {}",
-            not_run.message
+            not_run
         );
     }
 
@@ -1300,21 +1231,31 @@ mod tests {
         let not_run = explicit_not_run(
             &json!({"models": ["a::b"], "focus": "explicit subject", "context": "c", "prompt": "old"}),
         );
-        assert_eq!(not_run.reason, NotRunReason::InvalidInput);
-        assert!(not_run.message.contains("unknown input field `prompt`"));
+        assert!(not_run.contains("unknown input field `prompt`"));
+    }
+
+    #[test]
+    fn quoted_caller_text_is_escaped_and_bounded() {
+        assert_eq!(quoted_text("a::b"), "a::b");
+        assert_eq!(quoted_text("a\u{1}\nb"), "a\\u{1}\\nb");
+        assert_eq!(quoted_text("a\u{202E}\u{2028}b"), "a\\u{202e}\\u{2028}b");
+        let long = "x".repeat(MAX_QUOTED_TEXT_CHARS + 1);
+        assert_eq!(
+            quoted_text(&long),
+            format!("{}...", "x".repeat(MAX_QUOTED_TEXT_CHARS))
+        );
+        assert_eq!(quoted_text(&long[1..]), long[1..]);
     }
 
     #[test]
     fn review_requires_bounded_focus_and_context() {
-        for (input, reason, expected) in [
+        for (input, expected) in [
             (
                 json!({"models": ["a::b"], "context": "material"}),
-                NotRunReason::InvalidInput,
                 "focus is required",
             ),
             (
                 json!({"models": ["a::b"], "focus": "question", "context": "  "}),
-                NotRunReason::InvalidInput,
                 "context is required",
             ),
             (
@@ -1324,7 +1265,6 @@ mod tests {
                     "focus": "\u{e9}".repeat(MAX_REVIEW_FOCUS_BYTES / 2 + 1),
                     "context": "material",
                 }),
-                NotRunReason::InputTooLarge,
                 "focus exceeds 7168 bytes",
             ),
             (
@@ -1333,13 +1273,11 @@ mod tests {
                     "focus": "question",
                     "context": "\u{e9}".repeat(MAX_REVIEW_CONTEXT_BYTES / 2 + 1),
                 }),
-                NotRunReason::InputTooLarge,
                 "context exceeds 262144 bytes",
             ),
         ] {
             let not_run = explicit_not_run(&input);
-            assert_eq!(not_run.reason, reason, "{}", not_run.message);
-            assert!(not_run.message.contains(expected), "{}", not_run.message);
+            assert!(not_run.contains(expected), "{}", not_run);
         }
     }
 
@@ -1417,7 +1355,7 @@ mod tests {
         let not_run = not_run(&json!({"focus": "q", "context": "c", "models": []}), || {
             Ok(ExtensionConfigDocuments::default())
         });
-        assert_eq!(not_run.reason, NotRunReason::Unconfigured);
+        assert_eq!(not_run, UNCONFIGURED_MESSAGE);
     }
 
     #[test]
@@ -1463,15 +1401,12 @@ mod tests {
             let not_run = not_run(&review_request(), || {
                 Ok(documents(Some(project), Some(user.clone())))
             });
-            assert_eq!(not_run.reason, NotRunReason::InvalidConfig);
             assert!(
-                not_run
-                    .message
-                    .contains("the project code-swarm config is invalid")
-                    && not_run.message.contains(fragment)
-                    && not_run.message.contains("code-swarm.configure"),
+                not_run.contains("the project code-swarm config is invalid")
+                    && not_run.contains(fragment)
+                    && not_run.contains("code-swarm.configure"),
                 "{}",
-                not_run.message
+                not_run
             );
         }
 
@@ -1483,25 +1418,25 @@ mod tests {
                 Some(json!({"version": 1, "reviewers": []})),
             ))
         });
-        assert_eq!(user_not_run.reason, NotRunReason::InvalidConfig);
         assert!(
-            user_not_run
-                .message
-                .contains("the user code-swarm config is invalid"),
+            user_not_run.contains("the user code-swarm config is invalid"),
             "{}",
-            user_not_run.message
+            user_not_run
         );
 
         // The host refuses a malformed document; the review does not run.
         let not_run = not_run(&review_request(), || {
             Err(Error::Host("host operation failed".to_owned()))
         });
-        assert_eq!(not_run.reason, NotRunReason::InvalidConfig);
+        assert!(
+            not_run.contains("code-swarm could not read its reviewer config"),
+            "{not_run}"
+        );
 
         // Cancellation is not a config problem.
         assert!(matches!(
             plan_review(&review_request(), || Err(Error::Cancelled)),
-            Err(ReviewFailure::Host(Error::Cancelled))
+            Err(Error::Cancelled)
         ));
     }
 

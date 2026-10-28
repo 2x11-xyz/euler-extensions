@@ -24,6 +24,13 @@ pub enum Error {
     /// The command handler failed; serve reports a generic failure to Euler
     /// (implementation details never enter provenance as extension output).
     Command(String),
+    /// The command handler failed with text meant for the user and the model.
+    /// Serve sends it as `error.data.user_message` on the generic failure. A
+    /// supporting Euler redacts it and keeps it only when it is nonblank, at
+    /// most 1 KiB, free of control characters other than newline and tab, and
+    /// format-safe; otherwise, and on an Euler that predates the field, the
+    /// command fails with the generic host text.
+    UserMessage(String),
 }
 
 impl std::fmt::Display for Error {
@@ -33,6 +40,8 @@ impl std::fmt::Display for Error {
             Error::Host(message) => write!(f, "host error: {message}"),
             Error::Cancelled => write!(f, "cancelled"),
             Error::Command(message) => write!(f, "command error: {message}"),
+            // No prefix: the text is already written for the user.
+            Error::UserMessage(message) => write!(f, "{message}"),
         }
     }
 }
@@ -396,7 +405,8 @@ pub struct CommandContext {
 
 /// A declared command handler. It must return a JSON object; errors are
 /// reported to Euler as a generic failure (stderr and implementation details
-/// never enter the model canvas or provenance as extension output).
+/// never enter the model canvas or provenance as extension output). Only
+/// [`Error::UserMessage`] adds text, as the opt-in user message.
 pub type Handler<R, W> = Box<dyn Fn(&CommandContext, &mut Host<'_, R, W>) -> Result<Value, Error>>;
 
 /// Run declared command handlers until Euler sends the clean exit signal,
@@ -499,6 +509,9 @@ pub fn serve_with<R: BufRead, W: Write>(
                             "extension command cancelled",
                         )?;
                     }
+                    Err(Error::UserMessage(user_message)) => {
+                        write_user_message_error(&mut wire, &command_id, &user_message)?;
+                    }
                     Err(_) => {
                         write_error(&mut wire, &command_id, -32000, "extension command failed")?;
                     }
@@ -581,6 +594,23 @@ fn write_error<R: BufRead, W: Write>(
         "jsonrpc": "2.0",
         "id": id,
         "error": {"code": code, "message": message},
+    }))
+}
+
+/// The generic command failure plus the opt-in `error.data.user_message`.
+fn write_user_message_error<R: BufRead, W: Write>(
+    wire: &mut Wire<R, W>,
+    id: &Value,
+    user_message: &str,
+) -> Result<(), Error> {
+    wire.write(&json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32000,
+            "message": "extension command failed",
+            "data": {"user_message": user_message},
+        },
     }))
 }
 

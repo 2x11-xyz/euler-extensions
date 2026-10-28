@@ -406,6 +406,32 @@ class CanonicalSdkProtocolTests(unittest.TestCase):
                 self.assertEqual(error["code"], -32000)
                 self.assertEqual(error["message"], "extension command failed")
                 self.assertNotIn("private implementation detail", str(error))
+                self.assertNotIn("data", error)
+                peer.finish()
+
+    def test_user_message_failure_carries_the_message_on_the_generic_error(self):
+        with self.peer() as peer:
+            peer.initialize()
+            peer.invoke("fail-with-user-message", {})
+            self.assertEqual(
+                peer.read()["error"],
+                {
+                    "code": -32000,
+                    "message": "extension command failed",
+                    "data": {"user_message": "not configured; relay this"},
+                },
+            )
+            peer.finish()
+
+    def test_unframeable_user_message_leaves_the_generic_failure(self):
+        for kind in ("oversized", "lone-surrogate"):
+            with self.subTest(kind=kind), self.peer(max_message_bytes=512) as peer:
+                peer.initialize()
+                peer.invoke("fail-with-unframeable-user-message", {"kind": kind})
+                self.assertEqual(
+                    peer.read()["error"],
+                    {"code": -32000, "message": "extension command failed"},
+                )
                 peer.finish()
 
     def test_oversized_handler_output_is_sanitized(self):

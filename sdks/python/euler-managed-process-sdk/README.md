@@ -31,6 +31,16 @@ the session- and extension-namespaced private state surface governed by
 to Euler's canonical transcript/provenance event stream; it does not inject
 workflow text into model context.
 
+A handler that raises an exception fails with Euler's generic
+`extension command failed`; the exception text never crosses the wire. To tell
+the user and the model why a command failed, raise `UserMessage(text)`
+instead: the SDK sends the text as `error.data.user_message`, and an Euler that
+supports extension user messages (Euler #163) shows it as
+`extension command failed: <text>` after redacting it and checking that it is
+nonblank, at most 1 KiB, free of control characters other than newline and
+tab, and format-safe. Text that fails those checks, or any text sent to an
+older Euler, leaves the generic failure.
+
 `extension_model_text_is_format_safe(text)` exposes Euler's frozen Unicode-17
 format-spoof and separator predicate for extension-authored model-facing text.
 It intentionally leaves ordinary control-character, emptiness, and length

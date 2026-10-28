@@ -14,6 +14,7 @@ from euler_managed_process_sdk import (  # noqa: E402
     CommandContext,
     HostError,
     ProtocolError,
+    UserMessage,
     serve,
 )
 
@@ -135,6 +136,15 @@ def fail(_context: CommandContext) -> dict[str, object]:
     raise RuntimeError("private implementation detail")
 
 
+def fail_with_user_message(_context: CommandContext) -> dict[str, object]:
+    raise UserMessage("not configured; relay this")
+
+
+def fail_with_unframeable_user_message(context: CommandContext) -> dict[str, object]:
+    messages = {"oversized": "x" * 600, "lone-surrogate": "\ud800"}
+    raise UserMessage(messages[context.input["kind"]])
+
+
 def non_object(_context: CommandContext) -> object:
     return ["not", "an", "object"]
 
@@ -171,6 +181,8 @@ if __name__ == "__main__":
             "catch-inbound-protocol-error": catch_inbound_protocol_error,
             "echo-input": echo_input,
             "fail": fail,
+            "fail-with-user-message": fail_with_user_message,
+            "fail-with-unframeable-user-message": fail_with_unframeable_user_message,
             "non-object": non_object,
             "oversized": oversized,
             "catch-outbound-protocol-error": catch_outbound_protocol_error,
