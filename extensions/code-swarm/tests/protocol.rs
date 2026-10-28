@@ -13,6 +13,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const PROTOCOL_VERSION: &str = "euler-managed-process/1";
+/// Euler's `MAX_EXTENSION_USER_MESSAGE_BYTES`: a longer user message is
+/// replaced by the generic failure, so every not-run message must fit.
+const MAX_EXTENSION_USER_MESSAGE_BYTES: usize = 1024;
 
 struct Session {
     child: Child,
@@ -94,6 +97,42 @@ impl Session {
         );
         assert!(result.get("error").is_none(), "command failed: {result}");
         result["result"].clone()
+    }
+
+    /// The command's `error.data.user_message`: a review that did not run is
+    /// the generic command failure carrying honest text, never a result.
+    fn command_user_message(&mut self) -> String {
+        let response = self.recv();
+        assert_eq!(
+            response["id"],
+            json!(2),
+            "expected the command response: {response}"
+        );
+        assert!(
+            response.get("result").is_none(),
+            "expected a failure: {response}"
+        );
+        let error = &response["error"];
+        assert_eq!(error["code"], json!(-32000), "{response}");
+        assert_eq!(error["message"], "extension command failed", "{response}");
+        let user_message = error["data"]["user_message"]
+            .as_str()
+            .unwrap_or_else(|| panic!("missing user_message: {response}"))
+            .to_owned();
+        // The host keeps only such text, replacing anything else with its
+        // generic failure. It also allows newline and tab; code-swarm messages
+        // are single-line, so this checks the stricter form.
+        assert!(!user_message.trim().is_empty());
+        assert!(
+            user_message.len() <= MAX_EXTENSION_USER_MESSAGE_BYTES,
+            "{} bytes: {user_message}",
+            user_message.len()
+        );
+        assert!(
+            !user_message.chars().any(char::is_control),
+            "{user_message}"
+        );
+        user_message
     }
 
     fn shutdown_and_exit(&mut self) {
@@ -287,8 +326,8 @@ fn review_falls_back_to_the_user_config() {
 }
 
 /// Run a review whose config read gets `answer`, and return the not-run
-/// result. Nothing spawns and no artifact is written.
-fn not_run_review(answer: impl FnOnce(&mut Session, &Value)) -> Value {
+/// user message. Nothing spawns and no artifact is written.
+fn not_run_review(answer: impl FnOnce(&mut Session, &Value)) -> String {
     let mut session = Session::spawn();
     session.initialize();
     session.command(
@@ -298,21 +337,20 @@ fn not_run_review(answer: impl FnOnce(&mut Session, &Value)) -> Value {
     let read = session.recv();
     assert_eq!(read["method"], "euler/host/read-extension-config");
     answer(&mut session, &read);
-    // The next message is the command result, not a spawn request.
-    let payload = session.command_result();
+    // The next message is the command failure, not a spawn request.
+    let message = session.command_user_message();
     session.shutdown_and_exit();
-    assert_eq!(payload["review_ran"], json!(false), "{payload}");
-    payload
+    message
 }
 
 #[test]
-fn unconfigured_review_returns_an_honest_not_run_result_without_spawning() {
-    let payload = not_run_review(|session, read| {
+fn unconfigured_review_fails_with_an_honest_message_without_spawning() {
+    let message = not_run_review(|session, read| {
         session.respond(read, json!({"project": null, "user": null}));
     });
-    assert_eq!(payload["reason"], "unconfigured");
-    let message = payload["message"].as_str().expect("message");
     for fragment in [
+        "code-swarm is not configured",
+        "Relay these options to the user",
         "do not guess providers or models",
         "code-swarm.configure",
         "code-swarm.configure-user",
@@ -327,8 +365,8 @@ fn unconfigured_review_returns_an_honest_not_run_result_without_spawning() {
 }
 
 #[test]
-fn invalid_config_returns_a_not_run_result_and_never_falls_through() {
-    let payload = not_run_review(|session, read| {
+fn invalid_config_fails_with_an_honest_message_and_never_falls_through() {
+    let message = not_run_review(|session, read| {
         session.respond(
             read,
             json!({
@@ -337,19 +375,33 @@ fn invalid_config_returns_a_not_run_result_and_never_falls_through() {
             }),
         );
     });
-    assert_eq!(payload["reason"], "invalid_config");
-    assert!(payload["message"]
-        .as_str()
-        .unwrap()
-        .contains("the project code-swarm config is invalid"));
+    for fragment in [
+        "the project code-swarm config is invalid",
+        "do not guess providers or models",
+        "code-swarm.configure",
+    ] {
+        assert!(
+            message.contains(fragment),
+            "missing `{fragment}`: {message}"
+        );
+    }
 
     // A document the host refuses (malformed, oversized, symlinked).
-    let payload = not_run_review(|session, read| session.respond_error(read));
-    assert_eq!(payload["reason"], "invalid_config");
+    let message = not_run_review(|session, read| session.respond_error(read));
+    for fragment in [
+        "code-swarm could not read its reviewer config",
+        "do not guess providers or models",
+        "code-swarm.configure",
+    ] {
+        assert!(
+            message.contains(fragment),
+            "missing `{fragment}`: {message}"
+        );
+    }
 }
 
 #[test]
-fn failed_reviewer_batch_returns_a_not_run_result_without_writing() {
+fn failed_reviewer_batch_fails_with_an_honest_message_without_writing() {
     let mut session = Session::spawn();
     session.initialize();
     session.command(
@@ -359,13 +411,11 @@ fn failed_reviewer_batch_returns_a_not_run_result_without_writing() {
     let spawn = session.recv();
     assert_eq!(spawn["method"], "euler/host/spawn-agents");
     session.respond_error(&spawn);
-    // The next message is the command result, not an artifact write.
-    let payload = session.command_result();
+    // The next message is the command failure, not an artifact write.
+    let message = session.command_user_message();
     session.shutdown_and_exit();
-    assert_eq!(payload["review_ran"], json!(false), "{payload}");
-    assert_eq!(payload["reason"], "reviewer_batch_failed");
-    let message = payload["message"].as_str().expect("message");
     for fragment in [
+        "code-swarm got no reviewer results",
         "do not guess providers or models",
         "/login <provider>",
         "code-swarm.configure",
@@ -380,7 +430,7 @@ fn failed_reviewer_batch_returns_a_not_run_result_without_writing() {
 #[test]
 fn cancelled_or_malformed_reviewer_batch_ends_the_command() {
     // Cancellation while the batch runs is a cancelled command, not a not-run
-    // result.
+    // failure.
     let mut session = Session::spawn();
     session.initialize();
     session.command(
@@ -393,9 +443,10 @@ fn cancelled_or_malformed_reviewer_batch_ends_the_command() {
     let result = session.recv();
     assert_eq!(result["id"], json!(2));
     assert_eq!(result["error"]["code"], json!(-32800), "{result}");
+    assert!(result["error"].get("data").is_none(), "{result}");
     session.shutdown_and_exit();
 
-    // A malformed host answer is a protocol failure, not a not-run result.
+    // A malformed host answer is a protocol failure, not a not-run failure.
     let mut session = Session::spawn();
     session.initialize();
     session.command(
@@ -407,11 +458,12 @@ fn cancelled_or_malformed_reviewer_batch_ends_the_command() {
     let result = session.recv();
     assert_eq!(result["id"], json!(2));
     assert_eq!(result["error"]["code"], json!(-32000), "{result}");
+    assert!(result["error"].get("data").is_none(), "{result}");
     session.shutdown_and_exit();
 }
 
 #[test]
-fn oversized_focus_returns_a_not_run_result() {
+fn oversized_focus_fails_with_an_honest_message() {
     let mut session = Session::spawn();
     session.initialize();
     // Within the schema's 7168-character bound, over the 7168-byte bound.
@@ -419,10 +471,55 @@ fn oversized_focus_returns_a_not_run_result() {
         "review",
         json!({"models": ["a::b"], "focus": "\u{e9}".repeat(3600), "context": "c"}),
     );
-    let payload = session.command_result();
+    let message = session.command_user_message();
     session.shutdown_and_exit();
-    assert_eq!(payload["review_ran"], json!(false));
-    assert_eq!(payload["reason"], "input_too_large");
+    assert_eq!(
+        message,
+        "focus exceeds 7168 bytes; shorten the review question"
+    );
+}
+
+#[test]
+fn invalid_review_input_fails_with_an_honest_message() {
+    let mut session = Session::spawn();
+    session.initialize();
+    session.command(
+        "review",
+        json!({"models": ["no-separator"], "focus": "question", "context": "material"}),
+    );
+    let message = session.command_user_message();
+    session.shutdown_and_exit();
+    assert_eq!(
+        message,
+        "model target `no-separator` must use provider::model form"
+    );
+
+    // Caller text is escaped and bounded when quoted, so even a huge or
+    // control-laden value leaves a message the host keeps.
+    let huge = format!("\u{1}{}", "x".repeat(4096));
+    for input in [
+        json!({"models": [huge], "focus": "question", "context": "material"}),
+        json!({"models": ["a::b"], "focus": "question", "context": "material", huge.clone(): 1}),
+    ] {
+        let mut session = Session::spawn();
+        session.initialize();
+        session.command("review", input);
+        let message = session.command_user_message();
+        session.shutdown_and_exit();
+        assert!(message.contains("`\\u{1}xxx"), "{message}");
+        assert!(message.contains("xxx...`"), "{message}");
+    }
+    let message = not_run_review(|session, read| {
+        session.respond(
+            read,
+            json!({"project": {"version": 1, "reviewers": [{"target": huge}]}, "user": null}),
+        );
+    });
+    assert!(
+        message.contains("the project code-swarm config is invalid: model target `\\u{1}xxx"),
+        "{message}"
+    );
+    assert!(message.contains("code-swarm.configure"), "{message}");
 }
 
 /// Run a config command, answer its write, and return the written request

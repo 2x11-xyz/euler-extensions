@@ -33,6 +33,23 @@ class Cancelled(RuntimeError):
     """Euler cancelled the in-flight command before it completed."""
 
 
+class UserMessage(RuntimeError):
+    """The command failed with text meant for the user and the model.
+
+    ``serve`` sends ``message`` as ``error.data.user_message`` on the generic
+    failure. A supporting Euler redacts it and keeps it only when it is
+    nonblank, at most 1 KiB, free of control characters other than newline and
+    tab, and format-safe; otherwise, and on an Euler that predates the field,
+    the command fails with the generic host text.
+    """
+
+    def __init__(self, message: str) -> None:
+        if not isinstance(message, str):
+            raise TypeError("user message must be a string")
+        super().__init__(message)
+        self.message = message
+
+
 @dataclass(frozen=True)
 class CommandContext:
     """The JSON input supplied to one declared extension command."""
@@ -257,7 +274,8 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
 
     Each handler must return a JSON object. Exceptions are intentionally not
     serialized to Euler: process stderr and implementation details never enter
-    the model canvas or provenance as extension output.
+    the model canvas or provenance as extension output. Only ``UserMessage``
+    adds text, as the opt-in user message.
     """
 
     wire = _Wire()
@@ -302,6 +320,8 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
                 _result(wire, command["id"], dict(result))
             except Cancelled:
                 _error(wire, command["id"], -32800, "extension command cancelled")
+            except UserMessage as error:
+                _user_message_error(wire, command["id"], error.message)
             except Exception:
                 _error(wire, command["id"], -32000, "extension command failed")
 
@@ -363,6 +383,21 @@ def _result(wire: _Wire, request_id: Any, result: Any) -> None:
 def _error(wire: _Wire, request_id: Any, code: int, message: str) -> None:
     wire.write(
         {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    )
+
+
+def _user_message_error(wire: _Wire, request_id: Any, user_message: str) -> None:
+    """The generic command failure plus the opt-in ``error.data.user_message``."""
+    wire.write(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {
+                "code": -32000,
+                "message": "extension command failed",
+                "data": {"user_message": user_message},
+            },
+        }
     )
 
 

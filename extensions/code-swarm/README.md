@@ -3,7 +3,8 @@
 `code-swarm` runs 1 to 5 review-only agents over material the calling agent
 supplies and writes one consolidated review artifact. It needs Euler with
 extension config documents, model-target arguments, and model-tool input
-budgets (ADR 0022).
+budgets (ADR 0022), and extension user messages (Euler #163) for honest
+not-run failures.
 
 ## Review: the `code_swarm_review` model tool
 
@@ -30,11 +31,14 @@ is an error, never a fall-through to the next tier.
 A review that ran returns `"review_ran": true` with the K-of-N summary, the
 artifact reference, and each reviewer's ok/error and findings (bounded to
 16 KiB per reviewer in the result; the artifact keeps the full text). A review
-that did not run returns `"review_ran": false` with a `reason`
-(`unconfigured`, `invalid_config`, `invalid_input`, `input_too_large`,
-`reviewer_batch_failed`) and a
-`message` the agent relays to the user. These are successful results because
-managed-process command errors reach the model only as a generic failure.
+that did not run (no reviewers configured, an invalid or unreadable config,
+invalid or oversized input, or a failed reviewer batch) fails the tool call
+with an extension user message: the model sees
+`extension command failed: <message>`, which names the problem. For config
+and reviewer failures it also tells the agent to relay it and not guess
+providers or models, and names the configure, import, or login command that
+fixes it. An Euler without extension user messages drops the message and
+shows only the generic `extension command failed`.
 
 ## Configuration
 

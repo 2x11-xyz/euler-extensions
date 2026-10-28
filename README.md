@@ -20,7 +20,10 @@ parity with its formerly bundled counterpart. The canonical Python SDK
 consumer of model-tool registration and terminal-idle contribution; its
 workflow policy remains entirely outside Euler core. `code-swarm` now owns its
 `code_swarm_review` model tool and reviewer config (Euler ADR 0022) and needs
-an Euler with extension config documents and model-target arguments.
+an Euler with extension config documents, model-target arguments, and
+extension user messages. Both SDKs can attach an extension user message to a
+command failure (`Error::UserMessage` in Rust, `UserMessage` in Python);
+an Euler without that support shows the generic failure instead.
 
 `causal-dag` is present as a spec package (`extensions/causal-dag`), preserving
 the schemas and golden fixtures its Python implementation must satisfy. Layout:
