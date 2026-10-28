@@ -321,7 +321,13 @@ def serve(handlers: Mapping[str, CommandHandler]) -> None:
             except Cancelled:
                 _error(wire, command["id"], -32800, "extension command cancelled")
             except UserMessage as error:
-                _user_message_error(wire, command["id"], error.message)
+                try:
+                    _user_message_error(wire, command["id"], error.message)
+                except ProtocolError:
+                    # Text the SDK cannot frame (oversized or unencodable) gets
+                    # the generic failure, as such a result does. The wire
+                    # checks both before writing any bytes.
+                    _error(wire, command["id"], -32000, "extension command failed")
             except Exception:
                 _error(wire, command["id"], -32000, "extension command failed")
 

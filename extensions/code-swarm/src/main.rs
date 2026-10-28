@@ -1238,6 +1238,7 @@ mod tests {
     fn quoted_caller_text_is_escaped_and_bounded() {
         assert_eq!(quoted_text("a::b"), "a::b");
         assert_eq!(quoted_text("a\u{1}\nb"), "a\\u{1}\\nb");
+        assert_eq!(quoted_text("a\u{202E}\u{2028}b"), "a\\u{202e}\\u{2028}b");
         let long = "x".repeat(MAX_QUOTED_TEXT_CHARS + 1);
         assert_eq!(
             quoted_text(&long),

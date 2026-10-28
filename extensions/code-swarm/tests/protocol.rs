@@ -121,7 +121,10 @@ impl Session {
             .to_owned();
         // The host keeps only such text, replacing anything else with its
         // generic failure. It also allows newline and tab; code-swarm messages
-        // are single-line, so this checks the stricter form.
+        // are single-line, so this checks the stricter form. The escaped
+        // format and separator characters in
+        // `invalid_review_input_fails_with_an_honest_message` cover the host's
+        // format-safety rule.
         assert!(!user_message.trim().is_empty());
         assert!(
             user_message.len() <= MAX_EXTENSION_USER_MESSAGE_BYTES,
@@ -494,9 +497,10 @@ fn invalid_review_input_fails_with_an_honest_message() {
         "model target `no-separator` must use provider::model form"
     );
 
-    // Caller text is escaped and bounded when quoted, so even a huge or
-    // control-laden value leaves a message the host keeps.
-    let huge = format!("\u{1}{}", "x".repeat(4096));
+    // Caller text is escaped and bounded when quoted, so even a huge value
+    // laden with control, format, or separator characters leaves a message the
+    // host keeps.
+    let huge = format!("\u{1}\u{202E}\u{2028}{}", "x".repeat(4096));
     for input in [
         json!({"models": [huge], "focus": "question", "context": "material"}),
         json!({"models": ["a::b"], "focus": "question", "context": "material", huge.clone(): 1}),
@@ -506,7 +510,10 @@ fn invalid_review_input_fails_with_an_honest_message() {
         session.command("review", input);
         let message = session.command_user_message();
         session.shutdown_and_exit();
-        assert!(message.contains("`\\u{1}xxx"), "{message}");
+        assert!(
+            message.contains("`\\u{1}\\u{202e}\\u{2028}xxx"),
+            "{message}"
+        );
         assert!(message.contains("xxx...`"), "{message}");
     }
     let message = not_run_review(|session, read| {
@@ -516,7 +523,9 @@ fn invalid_review_input_fails_with_an_honest_message() {
         );
     });
     assert!(
-        message.contains("the project code-swarm config is invalid: model target `\\u{1}xxx"),
+        message.contains(
+            "the project code-swarm config is invalid: model target `\\u{1}\\u{202e}\\u{2028}xxx"
+        ),
         "{message}"
     );
     assert!(message.contains("code-swarm.configure"), "{message}");
